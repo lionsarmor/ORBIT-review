@@ -3,14 +3,16 @@ export function webURL(input){
  try{const url=new URL(String(input).trim());if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return null;return url.href;}catch{return null;}
 }
 export class WebRoom{
- constructor(api){Object.assign(this,api);this.pages=new Map();this.hosts=new Map();this.streams=new Map();this.pending=new Set();this.starting=new Map();this.layer=document.createElement('div');this.layer.className='web-pages';this.layer.hidden=true;document.querySelector('#stage').append(this.layer);this.resize=new ResizeObserver(()=>this.position());this.resize.observe(document.querySelector('#stage'));}
+ constructor(api){Object.assign(this,api);this.pages=new Map();this.hosts=new Map();this.streams=new Map();this.pending=new Set();this.starting=new Map();this.commands=new Map();this.incoming=new Map();this.layer=document.createElement('div');this.layer.className='web-pages';this.layer.hidden=true;document.querySelector('#stage').append(this.layer);this.resize=new ResizeObserver(()=>this.position());this.resize.observe(document.querySelector('#stage'));}
  park(){this.showingRoom=null;this.layer.hidden=true;}
  reconcile(){
+  for(const [room,c]of this.commands)if(this.session.state.web?.[room]?.event!==c.browser||!this.session.state.web[room].url)this.commands.delete(room);
+  for(const [key,c]of this.incoming)if(this.session.state.web?.[c.room]?.event!==c.browser||!this.session.members.has(c.actor))this.incoming.delete(key);
   for(const [room,host]of this.hosts){const state=this.session.state.web?.[room];if(!this.session.state.rooms[room]||!state?.url||state.event!==host.event){host.driver.close();this.hosts.delete(room);this.mesh.share(null,'web:'+room+':'+host.event);}}
   for(const [room,page]of this.pages){const state=this.session.state.web?.[room];if(!this.session.state.rooms[room]||!state?.url||state.event!==page.event){if(page.video){page.video.srcObject=null;page.video.remove();}else page.frame.src='about:blank';page.frame.remove();this.pages.delete(room);}}
   for(const [key,value]of this.streams){const state=this.session.state.web?.[value.room];if(!this.session.members.has(value.id)||state&&(!state.url||state.actor!==value.id||state.event!==value.event))this.streams.delete(key);}
  }
- synchronize(){if(!this.session.active)return;for(const [room,state]of Object.entries(this.session.state.web||{}))if(state.kind==='shared'&&state.url&&!this.session.members.has(state.actor)&&this.session.state.owner===this.session.id)this.emit('web-end',{browser:state.event},room);}
+ synchronize(){if(!this.session.active)return;for(const [room,c]of this.commands){if(c.blocked)continue;const now=performance.now();if([...c.pending.values()].some(p=>now-p.created>8000)){c.blocked=true;c.pending.clear();this.toast('The host did not acknowledge input. Stop and restart this Web event before sending more.');continue;}for(const p of c.pending.values())if(now-p.sent>500){p.sent=now;this.mesh.send(p.value,c.host);}}for(const [room,state]of Object.entries(this.session.state.web||{}))if(state.kind==='shared'&&state.url&&!this.session.members.has(state.actor)&&this.session.state.owner===this.session.id)this.emit('web-end',{browser:state.event},room);}
  // An optional embedded copy stays local; the primary action hosts one real browser.
  open(input,room=this.session.room){const url=webURL(input);if(!url)return this.toast('Choose an http or https webpage without a password in the address.');if(location.protocol==='https:'&&new URL(url).protocol!=='https:')return this.toast('Use an HTTPS page inside this secure lounge.');const current=this.session.state.web?.[room];if(current?.kind==='shared'&&current.url)return this.toast('Stop the shared Web event before opening separate copies.');return this.emit('web',{url,kind:'local'},room);}
  async startHosted(input,room=this.session.room){
@@ -34,13 +36,28 @@ export class WebRoom{
   this.$('#web-pair').onclick=async()=>{const status=this.$('#web-pair-status');status.textContent='Enable hosting in the local confirmation window, then return here.';try{await pairBrowser();if(status.isConnected)status.textContent='Ready. Choose Start shared browser.';}catch(e){if(status.isConnected)status.textContent=e.message;}};
   this.$('#web-host-confirm').onclick=()=>{this.closeModal();this.startHosted(input,room);};
  }
- control(room,action){const state=this.session.state.web?.[room];if(this.stopped||!state?.url||state.kind!=='shared')return;const v={type:'web-input',room,browser:state.event,action};if(state.actor===this.session.id)this.receive(this.session.id,v);else this.mesh.send(v,state.actor);}
- receive(id,v){
-  if(v?.type!=='web-input'||!this.session.members.has(id))return;
-  const state=this.session.state.web?.[v.room],host=this.hosts.get(v.room);
-  if(!host||state?.actor!==this.session.id||state.event!==v.browser||host.event!==v.browser||!state.url||JSON.stringify(v.action||{}).length>20000)return;
-  const now=performance.now();this.rates??=new Map();const rate=this.rates.get(id)||{at:now,count:0};if(now-rate.at>1000){rate.at=now;rate.count=0;}if(++rate.count>35)return;this.rates.set(id,rate);host.driver.input(v.action);
+ control(room,action){
+  const state=this.session.state.web?.[room];if(this.stopped||!state?.url||state.kind!=='shared')return;
+  if(state.actor===this.session.id){this.hosts.get(room)?.driver.input(action);return;}
+  let commands=this.commands.get(room);if(!commands||commands.browser!==state.event){commands={browser:state.event,host:state.actor,next:1,pending:new Map()};this.commands.set(room,commands);}
+  if(commands.blocked)return this.toast('Stop and restart this Web event to restore its controls.');
+  if(commands.pending.size>=40)return this.toast('The shared browser is catching up. Give it a moment.');
+  const seq=commands.next++,value={type:'web-input',room,browser:state.event,seq,action},now=performance.now();commands.pending.set(seq,{value,created:now,sent:now});this.mesh.send(value,state.actor);
  }
+ receive(id,v){
+  if(this.stopped||!this.session.members.has(id))return;
+  const state=this.session.state.web?.[v.room];if(!state?.url||state.event!==v.browser||!Number.isSafeInteger(v.seq)||v.seq<1||v.seq>1e9)return;
+  if(v.type==='web-ack'){const c=this.commands.get(v.room);if(id===state.actor&&c?.browser===v.browser)c.pending.delete(v.seq);return;}
+  if(v.type!=='web-input')return;
+  const host=this.hosts.get(v.room);if(!host||state.actor!==this.session.id||host.event!==v.browser||JSON.stringify(v.action||{}).length>20000)return;
+  const now=performance.now();this.rates??=new Map();const rate=this.rates.get(id)||{at:now,count:0};if(now-rate.at>1000){rate.at=now;rate.count=0;}if(++rate.count>35)return;this.rates.set(id,rate);
+  const key=id+':'+v.room;let incoming=this.incoming.get(key);if(!incoming||incoming.browser!==v.browser){incoming={actor:id,room:v.room,browser:v.browser,next:1,buffer:new Map()};this.incoming.set(key,incoming);}
+  if(v.seq<incoming.next){this.mesh.send({type:'web-ack',room:v.room,browser:v.browser,seq:v.seq},id);return;}
+  if(v.seq>incoming.next+40)return;
+  if(!incoming.buffer.has(v.seq))incoming.buffer.set(v.seq,v.action);
+  while(incoming.buffer.has(incoming.next)){const seq=incoming.next++;host.driver.input(incoming.buffer.get(seq));incoming.buffer.delete(seq);this.mesh.send({type:'web-ack',room:v.room,browser:v.browser,seq},id);}
+ }
+
  stream(id,stream,key){const split=key.lastIndexOf(':'),room=key.slice(4,split),event=key.slice(split+1);if(split<5||room.length>60||!/^[-\w]{12,40}$/.test(event))return;this.streams.set(id+':'+room+':'+event,{id,room,event,stream});if(this.isVisible()&&this.session.room===room&&this.$('#web-room'))this.render();}
  render(){
   if(this.stopped)return;
@@ -84,5 +101,5 @@ export class WebRoom{
   input.onkeydown=e=>{if(e.isComposing)return;if(e.key==='Tab'&&!e.ctrlKey&&!e.altKey&&!e.metaKey)return;e.preventDefault();if(e.key.length===1&&!e.ctrlKey&&!e.altKey&&!e.metaKey)this.control(room,{type:'text',text:e.key});else{const key=[e.ctrlKey?'Control':'',e.altKey?'Alt':'',e.shiftKey?'Shift':'',e.metaKey?'Meta':'',e.key===' '?'Space':e.key].filter(Boolean).join('+');this.control(room,{type:'key',key});}};
  }
  position(){const surface=this.$('#web-surface');const page=this.pages.get(this.showingRoom);if(!surface||!page||this.layer.hidden)return;const box=surface.getBoundingClientRect(),stage=document.querySelector('#stage').getBoundingClientRect();Object.assign(page.frame.style,{left:`${box.left-stage.left}px`,top:`${box.top-stage.top}px`,width:`${box.width}px`,height:`${box.height}px`});}
- stop(){this.stopped=true;for(const driver of this.starting.values())driver.close();this.starting.clear();for(const [room,host]of this.hosts){host.driver.close();this.mesh.share(null,'web:'+room+':'+host.event);}this.hosts.clear();for(const page of this.pages.values()){if(page.video)page.video.srcObject=null;else page.frame.src='about:blank';page.frame.remove();}this.pages.clear();this.streams.clear();this.resize.disconnect();this.layer.remove();}
+ stop(){this.stopped=true;this.commands.clear();this.incoming.clear();for(const driver of this.starting.values())driver.close();this.starting.clear();for(const [room,host]of this.hosts){host.driver.close();this.mesh.share(null,'web:'+room+':'+host.event);}this.hosts.clear();for(const page of this.pages.values()){if(page.video)page.video.srcObject=null;else page.frame.src='about:blank';page.frame.remove();}this.pages.clear();this.streams.clear();this.resize.disconnect();this.layer.remove();}
 }

@@ -172,7 +172,7 @@ export class Activities{
    else{this.chessSelection=dest;this.chess();}
   };
  }
- receive(id,v){if(v.type==='web-input')this.web.receive(id,v);else this.arcade.receive(id,v);}
+ receive(id,v){if(v.type==='web-input'||v.type==='web-ack')this.web.receive(id,v);else this.arcade.receive(id,v);}
  controllers(){this.arcade.controllers();}
  tasks(){
   const {$,esc,session}=this;this.panel('A little progress, together',`<button id="task-add">＋ Add a task</button>`,`<div class="task-columns">${['todo','doing','done'].map(status=>`<section class="task-column"><h3>${{todo:'To do',doing:'In progress',done:'Done'}[status]}</h3>${Object.values(session.state.tasks).filter(t=>t.room===session.room&&t.status===status).map(t=>`<div class="task-card">${esc(t.title)}<select data-task="${esc(t.id)}" aria-label="Status for ${esc(t.title)}">${['todo','doing','done'].map(s=>`<option value="${s}" ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>`).join('')}</section>`).join('')}</div>`);
