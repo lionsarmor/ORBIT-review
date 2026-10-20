@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-skin="orbit">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101317"><title>ORBIT — together, for now</title><link rel="stylesheet" href="style.css"><link rel="icon" href="assets/orbit-icon.svg"><link rel="manifest" href="manifest.webmanifest"></head>
+<body>
+<div id="app">
+ <aside id="sidebar">
+  <div class="brand"><img id="brand-mark" src="assets/orbit.svg" alt="ORBIT"><span id="edition">TOGETHER, FOR NOW</span></div>
+  <div class="space-heading"><div><small>YOUR SPACE</small><h1 id="space-name">Tonight</h1></div><span id="connection-dot" title="Not in a space"></span></div>
+  <button id="invite" class="primary wide" disabled><span>↗</span> Invite</button>
+  <div id="room-section"><div class="section-heading">Rooms <button id="add-room" class="icon" title="Create room" aria-label="Create room">＋</button></div><nav id="rooms" aria-label="Rooms"></nav></div>
+  <div id="splitter" role="separator" aria-label="Resize room list" aria-orientation="horizontal" tabindex="0"><i></i></div>
+  <div id="member-section"><div class="section-heading">Members <span id="member-count">0</span></div><div id="members"></div></div>
+  <div id="service-links"></div>
+  <div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button><button id="leave" class="danger" disabled>Leave ↗</button></div>
+ </aside>
+ <main>
+  <header>
+   <button id="mobile-menu" class="icon" aria-label="Open rooms and members">☰</button>
+   <div class="room-heading"><span id="room-icon">◌</span><div><strong id="room-title">Lounge</strong><small id="room-subtitle">A little space to be together</small></div></div>
+   <select id="activity" aria-label="Background activity"><option value="ambient">Lounge</option><option value="watch">Watch</option><option value="whiteboard">Whiteboard</option><option value="chess">Chess</option><option value="emulator">Emulator</option><option value="tasks">Tasks</option><option value="news">Links</option></select>
+   <button id="share" title="Share video, local media or screen">↥ <span>Share</span></button>
+   <div class="header-spacer"></div>
+   <select id="chat-mode" aria-label="Chat visibility"><option value="auto">Chat · Auto</option><option value="visible">Chat · Visible</option><option value="hidden">Chat · Hidden</option></select>
+   <button id="queue-toggle" aria-expanded="true">☷ <span>Up next</span><b id="queue-count">0</b></button>
+  </header>
+  <div id="workspace">
+   <section id="stage" aria-label="Shared activity">
+    <div id="ambient"><div class="ambient-copy"><span class="eyebrow">A MOMENT, TOGETHER</span><h2>Make yourself<br>at home.</h2><p>Watch something. Make something.<br>Or just stay a while.</p><button id="start-watch">Find something to watch ↗</button></div><div class="scene-credit">AURORA COAST <span>ORBIT ORIGINAL</span></div></div>
+    <div id="activity-content"></div>
+    <div id="chat-overlay" class="auto"><div id="chat-context"></div><div id="messages" role="log" aria-live="polite"></div><form id="composer"><button type="button" id="emoji" aria-label="Choose emoji">☺</button><textarea id="message" rows="1" placeholder="Message Lounge…" aria-label="Message" maxlength="4000"></textarea><button type="button" id="attachment" aria-label="Share image or GIF">＋</button><button type="submit" aria-label="Send message">➤</button></form></div>
+    <div id="stage-status"><i></i><span>Ready when you are</span></div>
+   </section>
+   <aside id="queue"><div class="queue-heading"><div><h2>Up next</h2><p>Good plans are made together.</p></div><button id="queue-close" class="icon" aria-label="Hide activity queue">×</button></div><div id="queue-items"></div><button id="queue-add" class="outlined wide">＋ Add to next slot</button><button id="queue-schedule" class="subtle wide">◷ Schedule an event</button><div class="queue-note"><span>✧</span><p>Anyone here can add something.<br>Everything stays in this space.</p></div></aside>
+  </div>
+ </main>
+</div>
+<dialog id="welcome"><form id="entry-form"><div class="entry-brand"><img src="assets/orbit.svg" alt="ORBIT"></div><span class="eyebrow">TOGETHER, FOR NOW</span><h2>Your people.<br>Your little universe.</h2><p>Create a temporary space. Send a code.<br>When everyone leaves, the space ends.</p><label>Your name<input id="entry-name" maxlength="24" value="RODDY" autocomplete="nickname" required></label><label id="invite-label">Have an invite?<input id="join-code" placeholder="Paste a code or invitation link" autocomplete="off"></label><button type="submit" id="create-space" class="primary wide">Create a space ↗</button><button type="button" id="join-space" class="outlined wide">Join with code</button><div class="entry-skins"><button type="button" data-skin="orbit">ORBIT</button><button type="button" data-skin="buddy">BUDDY</button><button type="button" data-skin="roddy">RODDY</button></div><small id="entry-status">No account. No stored chat history.</small></form></dialog>
+<dialog id="modal"><div class="modal-header"><h2 id="modal-title"></h2><button id="modal-close" class="icon" aria-label="Close dialog">×</button></div><div id="modal-body"></div></dialog>
+<div id="toast" role="status"></div>
+<input type="file" id="image-file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+<script src="assets/sodium.js"></script><script src="assets/buddy-e2e.js"></script><script type="module" src="app.js"></script>
+</body></html>

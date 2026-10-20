@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+<title id="title">ORBIT Saturn-ring icon</title>
+<defs>
+<linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffe8bd"/><stop offset=".3" stop-color="#e2b17b"/><stop offset=".65" stop-color="#a76b40"/><stop offset="1" stop-color="#f8d4a2"/></linearGradient>
+<linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9f6b45"/><stop offset=".5" stop-color="#fff0ca"/><stop offset="1" stop-color="#cb8d56"/></linearGradient>
+<radialGradient id="planet" cx=".25" cy=".2" r=".9"><stop stop-color="#51402e"/><stop offset=".55" stop-color="#21262a"/><stop offset="1" stop-color="#101317"/></radialGradient>
+<filter id="halo" x="-40%" y="-100%" width="180%" height="300%"><feGaussianBlur stdDeviation="5"/></filter>
+</defs>
+<rect x="4" y="4" width="248" height="248" rx="48" fill="#101317" stroke="#d7a46c" stroke-opacity=".35" stroke-width="2"/>
+<ellipse cx="128" cy="104" rx="92" ry="25" transform="rotate(-25 128 104)" fill="none" stroke="#d19c62" stroke-opacity=".2" stroke-width="9" filter="url(#halo)"/>
+<ellipse cx="128" cy="104" rx="90" ry="23" transform="rotate(-25 128 104)" fill="none" stroke="#9e744f" stroke-width="6"/>
+<circle cx="128" cy="104" r="49" fill="url(#planet)" stroke="url(#gold)" stroke-width="10"/>
+<path d="M92 74a44 44 0 0 1 46-14" fill="none" stroke="#ffecc8" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>
+<path d="M38 104a90 23 0 0 0 180 0" transform="rotate(-25 128 104)" fill="none" stroke="url(#ring)" stroke-width="6" stroke-linecap="round"/>
+<path d="M34 104a94 27 0 0 0 188 0" transform="rotate(-25 128 104)" fill="none" stroke="#e8b982" stroke-opacity=".5" stroke-width="1.3"/>
+<g transform="translate(33 191) scale(.61)" fill="none" stroke="url(#gold)" stroke-width="6" stroke-linejoin="round">
+<rect x="5" y="12" width="43" height="40" rx="20"/>
+<path d="M65 52V12h25q14 0 14 12t-14 12H65m21 0 20 16M124 52V12h24q14 0 14 10t-14 10h-24m24 0q17 0 17 10t-17 10h-24M188 12v40M213 12h51m-25 0v40"/>
+</g><path fill="#101317" d="M32 209h35v4H32z"/>
+</svg>

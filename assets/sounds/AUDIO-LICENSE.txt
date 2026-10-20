@@ -1,0 +1,20 @@
+BUDDY door recordings
+
+Creator: Iwan Gabovitch (qubodup)
+Source: https://opengameart.org/content/door-open-door-close-set
+Archive: https://opengameart.org/sites/default/files/qubodup-DoorSet.7z
+Original recordings: qubodup-DoorOpen04.flac, qubodup-DoorClose07.flac
+License: CC0 1.0 Universal Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The creator's source page releases these recordings under CC0.
+Original FLAC recordings are retained alongside processed WAVs in source.
+Edits: mono mix, low-pass resampling to 12207 Hz, DC removal, peak level,
+short fades and trims. See provenance.json for exact edits and SHA-256 hashes.
+WAV files are unsigned 8-bit; BUDSFX.BIN converts them to signed VERA PCM.
+These are real door recordings, not recordings from AIM or MSN.
+
+Original UI cues: click.wav, send.wav, message.wav, alert.wav
+Created for RODDY and provided under CC0-1.0. These are original soft tap and
+plucked notification sounds, not classic-messenger recordings. Regenerate with
+python3 tools/build-buddy-ui-cues.py. Their levels are set separately from doors.

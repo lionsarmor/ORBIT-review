@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 328 84" role="img" aria-labelledby="title">
+  <title id="title">ORBIT — the O is a ringed planet</title>
+  <defs>
+    <linearGradient id="copper" x1="0" y1="0" x2=".9" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#ffe4b8"/><stop offset=".25" stop-color="#e8b67d"/><stop offset=".62" stop-color="#b87845"/><stop offset="1" stop-color="#f3cc98"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#92613e"/><stop offset=".4" stop-color="#ffdba5"/><stop offset=".68" stop-color="#fff0d0"/><stop offset="1" stop-color="#b57a4e"/></linearGradient>
+    <radialGradient id="planet" cx=".25" cy=".2" r=".9"><stop stop-color="#4c3a2b"/><stop offset=".55" stop-color="#202326"/><stop offset="1" stop-color="#101317"/></radialGradient>
+    <filter id="halo" x="-50%" y="-80%" width="200%" height="260%"><feGaussianBlur stdDeviation="2.4"/></filter>
+  </defs>
+  <ellipse cx="43" cy="42" rx="39" ry="11" transform="rotate(-25 43 42)" fill="none" stroke="#c48a51" stroke-opacity=".18" stroke-width="5" filter="url(#halo)"/>
+  <ellipse cx="43" cy="42" rx="38" ry="10" transform="rotate(-25 43 42)" fill="none" stroke="#8d6343" stroke-width="3"/>
+  <circle cx="43" cy="42" r="22" fill="url(#planet)" stroke="url(#copper)" stroke-width="5"/>
+  <path d="M28 28a20 20 0 0 1 19-6" fill="none" stroke="#fff0c8" stroke-opacity=".65" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M5 42a38 10 0 0 0 76 0" transform="rotate(-25 43 42)" fill="none" stroke="url(#ring)" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M3 42a40 12 0 0 0 80 0" transform="rotate(-25 43 42)" fill="none" stroke="#e8b982" stroke-opacity=".45" stroke-width=".7"/>
+  <g transform="translate(30 10)" fill="none" stroke="url(#copper)" stroke-width="6" stroke-linejoin="round">
+    <path d="M65 52V12h25q14 0 14 12t-14 12H65m21 0 20 16M124 52V12h24q14 0 14 10t-14 10h-24m24 0q17 0 17 10t-17 10h-24M188 12v40M213 12h51m-25 0v40"/>
+  </g>
+</svg>
