@@ -30,15 +30,18 @@ export class Mesh extends EventTarget {
   this.iceRefresh=setInterval(()=>this.refreshIce().catch(()=>this.emit('error','Could not refresh relay access. Reconnecting may be needed if the helper stays unavailable.')),30*60*1000);
   if(privacy==='relay'&&!this.iceServers.some(s=>JSON.stringify(s.urls).includes('turn:')||JSON.stringify(s.urls).includes('turns:'))){this.leave();throw Error('Hide my IP needs a configured TURN relay. Direct mode remains available.');}
   this.ws=new WebSocket(signalURL(`signal/${this.room}/${this.id}?create=${create?1:0}`));
+  const socket=this.ws;
   let chain=Promise.resolve();
-  this.ws.onmessage=e=>{chain=chain.then(()=>this.signal(JSON.parse(e.data))).catch(err=>this.emit('error',err.message));};
-  this.ws.onclose=()=>{if(!this.closed){this.emit('error','Connection helper disconnected. This client has left the space.');this.leave();this.emit('ended',{});}};
-  this.ws.onerror=()=>this.emit('error','Could not reach the connection helper.');
+  socket.onmessage=e=>{chain=chain.then(()=>{if(this.ws===socket)return this.signal(JSON.parse(e.data));}).catch(err=>this.emit('error',err.message));};
+  socket.onclose=()=>{if(this.ws===socket&&!this.closed){this.emit('error','Connection helper disconnected. This client has left the space.');this.leave();this.emit('ended',{});}};
+  socket.onerror=()=>{if(this.ws===socket&&!this.closed)this.emit('error','Could not reach the connection helper.');};
   this.ping=setInterval(()=>{if(this.ws?.readyState===1)this.ws.send('ping');},10000);
   return new Promise((resolve,reject)=>{
-   const t=setTimeout(()=>{this.leave();reject(Error('Joining timed out.'));},12000);
-   this.addEventListener('ready',()=>{clearTimeout(t);resolve({code,id:this.id});},{once:true});
-   this.addEventListener('fatal',e=>{clearTimeout(t);this.leave();reject(Error(e.detail));},{once:true});
+   const cleanup=()=>{clearTimeout(t);this.removeEventListener('ready',ready);this.removeEventListener('fatal',fatal);};
+   const ready=()=>{cleanup();resolve({code,id:this.id});};
+   const fatal=e=>{cleanup();this.leave();reject(Error(e.detail));};
+   const t=setTimeout(()=>{cleanup();this.leave();reject(Error('Joining timed out.'));},12000);
+   this.addEventListener('ready',ready,{once:true});this.addEventListener('fatal',fatal,{once:true});
   });
  }
  async signal(v){
@@ -136,5 +139,5 @@ export class Mesh extends EventTarget {
    if(stream)for(const track of stream.getTracks())p.pc.addTrack(track,stream);
   }
  }
- leave(){this.closed=true;clearInterval(this.ping);clearInterval(this.iceRefresh);this.ws?.close();for(const p of this.peers.values())p.pc?.close();this.peers.clear();this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;this.secret=null;this.identity=null;this.code='';}
+ leave(){this.closed=true;clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values())p.pc?.close();this.peers.clear();this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;this.secret=null;this.identity=null;this.code='';}
 }
