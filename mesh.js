@@ -76,7 +76,8 @@ export class Mesh extends EventTarget {
    pc.onicecandidate=e=>{if(e.candidate)this.sendSignal(v.from,{type:'ice',candidate:e.candidate}).catch(()=>{});};
    pc.ondatachannel=e=>this.channel(v.from,e.channel);
    pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);if(p.incomingStreams.size>=16&&!p.incomingStreams.has(stream.id))return;p.incomingStreams.set(stream.id,stream);const key=p.mediaNames.get(stream.id);if(key)this.emit('stream',{id:v.from,stream,key});};
-   pc.onconnectionstatechange=()=>{this.emit('connection',{id:v.from,state:pc.connectionState});if(pc.connectionState==='failed'){this.emit('error','A direct peer connection failed. Configure TURN for restrictive networks.');pc.close();this.peers.delete(v.from);this.emit('left',v.from);}};
+   pc.onconnectionstatechange=()=>{this.emit('connection',{id:v.from,state:pc.connectionState});if(pc.connectionState==='connected')clearTimeout(p.recovery);else if(pc.connectionState==='failed')this.recoverPeer(v.from,p);};
+   this.scheduleRecovery(v.from,p);
    // One negotiation path for initial channels, media and ICE renewal.
    // Polite-peer rollback resolves simultaneous offers (WebRTC perfect negotiation).
    pc.onnegotiationneeded=async()=>{
@@ -90,16 +91,28 @@ export class Mesh extends EventTarget {
    return;
   }
   const p=this.peers.get(v.from);if(!p)return;
-  if(value.type==='ice'){if(p.pc.remoteDescription){try{await p.pc.addIceCandidate(value.candidate);}catch(error){if(!p.ignoreOffer)throw error;}}else p.candidates.push(value.candidate);}
+  if(value.type==='ice'){const candidate=value.candidate;if(!candidate||typeof candidate.candidate!=='string'||candidate.candidate.length>4096)return;const ufrag=candidate.usernameFragment;if(p.pc.remoteDescription&&(!ufrag||p.pc.remoteDescription.sdp.includes('a=ice-ufrag:'+ufrag+'\r\n'))){try{await p.pc.addIceCandidate(candidate);}catch{if(!p.ignoreOffer)this.emit('error','A stale network candidate was ignored.');}}else if(p.candidates.length<128)p.candidates.push(candidate);}
   if(value.type==='sdp'){
    const ready=!p.makingOffer&&(p.pc.signalingState==='stable'||p.answerPending);
    p.ignoreOffer=!p.polite&&value.sdp.type==='offer'&&!ready;
    if(p.ignoreOffer)return;
    p.answerPending=value.sdp.type==='answer';
    try{await p.pc.setRemoteDescription(value.sdp);}finally{p.answerPending=false;}
-   for(const c of p.candidates.splice(0))await p.pc.addIceCandidate(c);
+   for(const c of p.candidates.splice(0)){if(c.usernameFragment&&!p.pc.remoteDescription.sdp.includes('a=ice-ufrag:'+c.usernameFragment+'\r\n'))continue;try{await p.pc.addIceCandidate(c);}catch{if(!p.ignoreOffer)this.emit('error','A stale network candidate was ignored.');}}
    if(value.sdp.type==='offer'){await p.pc.setLocalDescription();await this.sendSignal(v.from,{type:'sdp',sdp:p.pc.localDescription});}
   }
+ }
+ scheduleRecovery(id,p){clearTimeout(p.recovery);if(this.closed||this.peers.get(id)!==p||p.pc.connectionState==='connected')return;p.recovery=setTimeout(()=>this.recoverPeer(id,p),this.recoveryDelay||8000);}
+ async recoverPeer(id,p){
+  if(this.closed||this.peers.get(id)!==p||p.pc.connectionState==='connected'||p.recovering)return;clearTimeout(p.recovery);
+  if((p.retries||0)>=2){this.emit('error',this.privacy==='relay'?'The encrypted relay could not connect this peer. Direct fallback remains disabled.':'This peer could not connect after two network retries. Retry the lounge connection.');this.drop(id);return;}
+  p.recovering=true;p.retries=(p.retries||0)+1;this.emit('connection',{id,state:'retrying'});
+  try{const response=await fetch(apiURL('config'),{cache:'no-store',signal:AbortSignal.timeout(7000)});if(!response.ok)throw Error();const config=await response.json(),servers=Array.isArray(config.iceServers)?config.iceServers:[];
+   if(this.closed||this.peers.get(id)!==p)return;
+   if(this.privacy==='relay'&&!servers.some(s=>/turns?:/.test(JSON.stringify(s.urls))))throw Error();
+   if(p.pc.signalingState==='stable'){p.pc.setConfiguration({...p.pc.getConfiguration(),iceServers:servers});p.pc.restartIce();}else{p.pendingIce=servers;if(p.pc.signalingState==='have-local-offer')await this.sendSignal(id,{type:'sdp',sdp:p.pc.localDescription});}
+  }catch{if(!this.closed)this.emit('error','Could not renew this peer’s network path. Existing lounge data remains in memory.');}
+  finally{p.recovering=false;this.scheduleRecovery(id,p);}
  }
  async hello(id){await this.sendSignal(id,{type:'hello',key:this.publicKey,profile:this.profile,wipeVersion:1,creatorProof:this.creatorProof});}
  async refreshIce(){
@@ -117,7 +130,7 @@ export class Mesh extends EventTarget {
  async sendSignal(to,value){if(this.closed)return;const data=await seal(this.secret,value,`${this.room}:${this.id}:${to}`);if(this.ws?.readyState===1)this.ws.send(JSON.stringify({to,...data}));}
  channel(id,dc){
   const p=this.peers.get(id);p.dc=dc;
-  dc.onopen=()=>{if(this.closed||this.peers.get(id)!==p){dc.close();return;}this.emit('joined',{id,profile:p.profile});for(const [key,stream]of this.mediaStreams)this.send({type:'media-stream',key,stream:stream.id},id);this.send({type:'clock-ping',at:performance.now()},id);};
+  dc.onopen=()=>{clearTimeout(p.recovery);if(this.closed||this.peers.get(id)!==p){dc.close();return;}this.emit('joined',{id,profile:p.profile});for(const [key,stream]of this.mediaStreams)this.send({type:'media-stream',key,stream:stream.id},id);this.send({type:'clock-ping',at:performance.now()},id);};
   dc.onmessage=e=>{if(this.closed||this.peers.get(id)!==p)return;p.receiveChain=p.receiveChain.then(async()=>{
    const packet=await open(p.key,JSON.parse(e.data),`${this.room}:${id}:${this.id}`);
    if(!Number.isSafeInteger(packet.seq)||packet.seq<=p.last)return;p.last=packet.seq;
@@ -146,7 +159,7 @@ export class Mesh extends EventTarget {
    }).catch(e=>this.emit('error',e.message));pending.push(p.sendChain);
   }return Promise.all(pending);
  }
- drop(id){const p=this.peers.get(id);if(!p)return;clearTimeout(p.departure);p.pc.close();this.peers.delete(id);if(this.clockOffsets.has(id)){this.lastOffsets.set(id,this.clockOffsets.get(id));if(this.lastOffsets.size>32)this.lastOffsets.delete(this.lastOffsets.keys().next().value);}this.clockOffsets.delete(id);this.emit('left',id);}
+ drop(id){const p=this.peers.get(id);if(!p)return;clearTimeout(p.departure);clearTimeout(p.recovery);p.pc.close();this.peers.delete(id);if(this.clockOffsets.has(id)){this.lastOffsets.set(id,this.clockOffsets.get(id));if(this.lastOffsets.size>32)this.lastOffsets.delete(this.lastOffsets.keys().next().value);}this.clockOffsets.delete(id);this.emit('left',id);}
  deliver(id,value){
   if(value?.type==='peer-bye'){this.drop(id);return;}
   if(value?.type==='clock-ping'&&Number.isFinite(value.at)){this.send({type:'clock-pong',at:value.at,remote:performance.now()},id);return;}
@@ -170,5 +183,5 @@ export class Mesh extends EventTarget {
   }
  }
  clearMedia(){for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;for(const p of this.peers.values()){if(p.pc.signalingState!=='closed')for(const sender of p.pc.getSenders())if(sender.track)p.pc.removeTrack(sender);p.mediaNames.clear();p.incomingStreams.clear();p.chunks.clear();}}
- leave(){this.send({type:'peer-bye'});this.closed=true;this.readyOnce=false;this.reconnecting=false;clearTimeout(this.retryTimer);clearInterval(this.timing);clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values()){clearTimeout(p.departure);setTimeout(()=>p.pc?.close(),200);}this.peers.clear();for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;this.secret=null;this.identity=null;this.code='';}
+ leave(){this.send({type:'peer-bye'});this.closed=true;this.readyOnce=false;this.reconnecting=false;clearTimeout(this.retryTimer);clearInterval(this.timing);clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values()){clearTimeout(p.departure);clearTimeout(p.recovery);setTimeout(()=>p.pc?.close(),200);}this.peers.clear();for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;this.secret=null;this.identity=null;this.code='';}
 }

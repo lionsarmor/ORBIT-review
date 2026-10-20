@@ -1,11 +1,15 @@
+import {device} from './platform.js';
+import {YouTubeRoom} from './youtube-player.js';
+import {Attachments} from './attachments.js';
+import {renderChess} from './chess-room.js';
 import {Arcade} from './arcade.js';
 import {WebRoom} from './web-room.js';
 import {fetchPreview,previewImage} from './link-preview.js';
 export class Activities{
- constructor(api){Object.assign(this,api);this.web=new WebRoom(api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
- resetView(){this.arcade.park();this.web.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
- deactivate(){this.web.park();this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
- stop(){this.stopped=true;this.web.stop();for(const controller of this.pendingPreviews||[])controller.abort();this.pendingPreviews?.clear();clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
+ constructor(api){Object.assign(this,api);this.attachments=new Attachments(api);this.youtubeRoom=new YouTubeRoom({...api,watchTime:w=>this.watchTime(w)});this.web=new WebRoom(api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
+ resetView(){this.youtubeRoom.park();this.arcade.park();this.web.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
+ deactivate(){this.youtubeRoom.park();this.web.park();this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
+ stop(){this.stopped=true;this.youtubeRoom.stop();this.attachments.stop();this.web.stop();for(const controller of this.pendingPreviews||[])controller.abort();this.pendingPreviews?.clear();clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
  setBackgroundOnly(value){this.backgroundOnly=value;this.render(this.session.state.rooms[this.session.room]?.mode||'ambient','view');}
  render(mode,reason){
   if(!this.active)return;this.arcade.mute(false);for(const a of this.voices.values())a.muted=false;
@@ -13,12 +17,12 @@ export class Activities{
   const toggle=this.$('#background-toggle');if(toggle){toggle.hidden=mode==='ambient'&&!this.backgroundOnly;toggle.textContent=this.backgroundOnly?'Return to activity':'Chat background';toggle.setAttribute('aria-pressed',String(!!this.backgroundOnly));}
   const view=this.backgroundOnly?'ambient':mode;
   const changed=this.mode!==view||this.room!==this.session.room||reason==='view';
-  if(changed){this.arcade.park();this.web.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;this.$('#activity-content').replaceChildren();}
+  if(changed){this.youtubeRoom.park();this.arcade.park();this.web.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;this.$('#activity-content').replaceChildren();}
   this.$('#ambient').style.display=view==='ambient'?'':'none';
   if(view==='ambient')return;
   if(view==='watch'){if(changed||reason==='watch')this.renderWatch();return;}
   if(view==='whiteboard'){if(changed)this.board();if(changed||['stroke','board-clear'].includes(reason))this.drawBoard();return;}
-  if(view==='chess'){if(changed||reason==='chess')this.chess();return;}
+  if(view==='chess'){if(changed||reason==='chess'||reason==='chess-seat')this.chess();return;}
   if(view==='emulator'){if(changed)this.arcade.show();else this.arcade.updateView();return;}
   if(view==='tasks'){if(changed||reason==='task')this.tasks();return;}
   if(view==='web'){this.web.render();return;}
@@ -28,6 +32,7 @@ export class Activities{
  shareDialog(){
   const {$,modal,esc}=this;
   modal('Something to share',`<form id="share-form"><label>Video link<input id="video-url" type="url" required placeholder="Direct .mp4 / .webm or a YouTube link"></label><button class="primary wide">Watch together ↗</button></form><div class="settings-section button-group"><button id="screen-share">Share screen / window</button><button id="local-share">Open a local video</button><button id="voice-share">${this.microphone?'Stop microphone':'Join voice'}</button><button id="share-audio" ${this.streams?.getAudioTracks().length?'':'disabled'}>${this.streams?.getAudioTracks().some(t=>t.enabled)?'Mute shared audio':'Unmute shared audio'}</button><button id="stop-share" ${this.streams?'':'disabled'}>Stop screen / local media</button><input id="local-video" type="file" accept="video/*,audio/*" hidden></div><p>Everyone receives the same playback commands. Browsers may require each person to press Play once. Screen and local-media sharing depend on your browser. Protected streaming sites cannot be embedded.</p>`);
+  if(device.phone){$('#screen-share').hidden=true;$('#local-share').hidden=true;const note=document.createElement('p');note.textContent='Phone edition joins screen and local-media shares from desktop peers. Video links and voice are available here.';$('#share-form').after(note);}
   $('#share-form').onsubmit=e=>{e.preventDefault();this.watch($('#video-url').value);this.closeModal();};
   $('#screen-share').onclick=async()=>{try{if(!navigator.mediaDevices?.getDisplayMedia)throw Error('Screen sharing is unavailable in this browser.');const s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:24},audio:true});await this.publish(s);this.closeModal();}catch(e){this.toast(e.message);}};
   $('#local-share').onclick=()=>$('#local-video').click();
@@ -70,12 +75,13 @@ export class Activities{
  renderWatch(){
   if(!this.active||this.mode!=='watch')return;
   const {$,esc,session}=this,room=session.room,w=session.state.watch[room];
+  if(!w?.url||this.videoKind(w.url)!=='youtube')this.youtubeRoom.park();
   if(!w?.url){$('#activity-content').innerHTML='<div class="watch-container" style="background:transparent"><div class="media-empty"><span class="eyebrow">THE BEST SEAT IS NEXT TO YOUR PEOPLE</span><h2 style="margin-top:18px">Make it a movie night.</h2><p>Paste a video into chat, share a screen, or add something to Up next.</p><button id="watch-open" class="primary">Choose something ↗</button></div></div>';$('#watch-open').onclick=()=>this.shareDialog();return;}
   const kind=w.url.startsWith('local:')?'local':this.videoKind(w.url);
   if(kind==='link'){
    $('#activity-content').innerHTML=`<div class="watch-container"><div class="media-empty"><h2>Open this together</h2><p>This service needs its own player. Playback cannot be synchronized here. Screen sharing is available where the service permits it.</p><a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer">Open ${esc(w.title)} ↗</a><p><button id="external-share">Share a screen</button></p></div></div>`;$('#external-share').onclick=()=>this.shareDialog();return;
   }
-  if(kind==='youtube'){this.youtube(w);return;}
+  if(kind==='youtube'){if(this.media){this.media.muted=true;this.media.style.display='none';document.body.append(this.media);this.media=null;}this.youtube(w);return;}
   const same=this.media?.dataset.source===w.url;
   if(!same){
    $('#activity-content').innerHTML='<div class="watch-container"><video id="watch-video" controls playsinline></video><button id="enable-play" class="play-prompt">▶ Enable playback</button></div>';
@@ -114,7 +120,11 @@ export class Activities{
  cleanupRooms(){for(const [room,player]of this.players)if(!this.session.state.rooms[room]){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();this.players.delete(room);}if(this.captureRoom&&!this.session.state.rooms[this.captureRoom])this.publish(null);}
  watchTime(w){const offset=w.actor===this.session.id?0:(this.mesh.clockOffsets?.get(w.actor)||this.mesh.lastOffsets?.get(w.actor))?.offset;return Math.max(0,Number(w.time)||0)+(w.playing&&typeof w.stamp==='number'&&offset!==undefined?Math.max(0,(performance.now()-(w.stamp+offset))/1000):0);}
  synchronize(){
-  if(!this.session.active)return;this.web.synchronize();
+  if(!this.session.active)return;this.web.synchronize();this.youtubeRoom.synchronize();
+  for(const [room,g]of Object.entries(this.session.state.chess||{})){
+   if(g.mode==='peer'&&this.session.state.owner===this.session.id)for(const [side,actor]of Object.entries(g.players))if(actor&&!this.session.members.has(actor))this.emit('chess-seat',{side,release:true,previous:actor},room);
+   if(g.mode==='computer'&&g.players.white===this.session.id){try{const state=JSON.parse(this.core.chess_state(g.fen));if(state.turn==='black'&&!state.over)this.emit('chess',{before:g.fen,move:this.core.chess_computer(g.fen)},room);}catch{}}
+  }
   if(this.session.state.owner===this.session.id)for(const [room,w]of Object.entries(this.session.state.watch||{}))if(w.url&&!this.session.members.has(w.actor)){if(w.url.startsWith('local:'))this.emit('watch',{url:'',title:'Share ended',playing:false},room);else this.emit('watch',{...w,time:this.watchTime(w)},room);}
   for(const [room,video]of this.players){const w=this.session.state.watch?.[room];if(!w||video.dataset.source!==w.url||video.srcObject||w.url.startsWith('local:'))continue;
    const target=this.watchTime(w),delta=target-video.currentTime;
@@ -123,21 +133,8 @@ export class Activities{
    if(video.readyState>1){if(Math.abs(delta)>1.2){video.expectedSeek=target;video.currentTime=target;}else video.playbackRate=w.playing&&Math.abs(delta)>.12?Math.max(.97,Math.min(1.03,1+delta*.04)):1;if(w.playing&&!video.dataset.buffering)video.play().catch(()=>{});if(!w.playing)video.pause();}
   }
  }
- youtube(w){
-  const {$,esc}=this,u=new URL(w.url);let id=u.hostname==='youtu.be'?u.pathname.slice(1):u.searchParams.get('v')||u.pathname.split('/').at(-1);
-  if(!/^[\w-]{11}$/.test(id)){this.toast('That YouTube video ID is not valid.');return;}
-  if(this.youtubeId!==id||!$('#youtube-frame')){
-   this.youtubeId=id;
-   $('#activity-content').innerHTML=`<div class="watch-container"><iframe id="youtube-frame" title="Shared YouTube video" src="https://www.youtube-nocookie.com/embed/${id}?enablejsapi=1&playsinline=1&origin=${encodeURIComponent(location.origin)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="video-sync-controls"><button id="yt-play">Play for everyone</button><button id="yt-pause">Pause for everyone</button><label>Seek (seconds)<input id="yt-time" type="number" min="0" value="0"></label><button id="yt-seek">Sync position</button></div></div>`;
-   $('#yt-play').onclick=()=>this.emit('watch',{...this.session.state.watch[this.session.room],playing:true,at:Date.now()});
-   $('#yt-pause').onclick=()=>this.emit('watch',{...this.session.state.watch[this.session.room],playing:false,time:this.ytTime||0,at:Date.now()});
-   $('#yt-seek').onclick=()=>this.emit('watch',{...this.session.state.watch[this.session.room],time:Number($('#yt-time').value)||0,at:Date.now()});
-   if(!this.ytListener){this.ytListener=e=>{if(e.origin!=='https://www.youtube-nocookie.com'||e.source!==$('#youtube-frame')?.contentWindow)return;try{const data=typeof e.data==='string'?JSON.parse(e.data):e.data;if(data.info?.currentTime)this.ytTime=data.info.currentTime;}catch{}};window.addEventListener('message',this.ytListener);}
-   $('#youtube-frame').onload=()=>{$('#youtube-frame')?.contentWindow.postMessage(JSON.stringify({event:'listening'}),'https://www.youtube-nocookie.com');this.youtube(this.session.state.watch[this.session.room]);};
-  }
-  const command=(func,args=[])=>$('#youtube-frame')?.contentWindow.postMessage(JSON.stringify({event:'command',func,args}),'https://www.youtube-nocookie.com');
-  command('seekTo',[this.watchTime(w),true]);command(w.playing?'playVideo':'pauseVideo');
- }
+ youtube(w){this.youtubeRoom.render(w);}
+
  board(){
   const {$}=this;
   this.panel('A blank canvas. All yours.',`<div class="board-controls"><input id="ink" type="color" value="#35516c" aria-label="Ink color"></div><select id="brush" aria-label="Brush width"><option value="3">Fine</option><option value="7">Bold</option><option value="18">Marker</option></select><button id="board-clear">Clear board</button>`,`<canvas id="whiteboard" class="board-canvas" width="1200" height="700" aria-label="Shared whiteboard"></canvas>`);
@@ -156,23 +153,9 @@ export class Activities{
    s.points.forEach((p,i)=>{if(!Array.isArray(p)||p.length!==2)return;const x=Math.max(0,Math.min(1,p[0]))*c.width,y=Math.max(0,Math.min(1,p[1]))*c.height;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
   }
  }
- chess(){
-  const {$,session,core,esc}=this;let state;
-  try{state=JSON.parse(core.chess_state(session.state.chess[session.room]?.fen||''));}catch{return;}
-  const computer=session.state.chess[session.room]?.computer||false;
-  const pieces={K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟','·':'', '.':''};
-  this.panel('A friendly match',`<select id="chess-opponent" aria-label="Chess opponent"><option value="peer">People in this space</option><option value="computer">Computer · casual</option></select><button id="chess-reset">New game</button>`,`<div class="chess-board">${[...state.board].map((p,i)=>{const square='abcdefgh'[i%8]+(8-Math.floor(i/8));return `<button class="square ${(Math.floor(i/8)+i%8)%2?'dark':''} ${p===p.toLowerCase()?'black':''} ${this.chessSelection===square?'selected':''} ${this.chessSelection&&state.legal.some(m=>m.startsWith(this.chessSelection+square))?'legal':''}" data-square="${square}" aria-label="${square} ${p==='.'?'empty':p}">${pieces[p]}</button>`;}).join('')}</div><p class="game-status">${state.turn} to move · ${esc(state.status)}${computer?' · You play white':' · Shared board'}</p>`);
-  $('#chess-opponent').value=computer?'computer':'peer';
-  $('#chess-opponent').onchange=e=>this.emit('chess',{reset:true,computer:e.target.value==='computer'});
-  $('#chess-reset').onclick=()=>{this.chessSelection=null;this.emit('chess',{reset:true,computer});};
-  $('.chess-board').onclick=e=>{
-   const b=e.target.closest('[data-square]');if(!b||state.over||computer&&state.turn==='black')return;
-   const dest=b.dataset.square,move=state.legal.find(m=>m===this.chessSelection+dest)||state.legal.find(m=>m===this.chessSelection+dest+'q');
-   if(move){this.chessSelection=null;this.emit('chess',{before:session.state.chess[session.room]?.fen||'',move});if(computer)setTimeout(()=>{const fen=session.state.chess[session.room]?.fen||'';const s=JSON.parse(core.chess_state(fen));if(s.turn==='black'&&!s.over)this.emit('chess',{before:fen,move:core.chess_computer(fen)});},250);}
-   else{this.chessSelection=dest;this.chess();}
-  };
- }
- receive(id,v){if(v.type==='web-input'||v.type==='web-ack')this.web.receive(id,v);else this.arcade.receive(id,v);}
+ chess(){renderChess(this);}
+
+ receive(id,v){if(v.type?.startsWith('file-')){this.attachments.receive(id,v).catch(()=>this.toast('That file transfer was rejected.'));return;}if(v.type==='web-input'||v.type==='web-ack')this.web.receive(id,v);else this.arcade.receive(id,v);}
  controllers(){this.arcade.controllers();}
  tasks(){
   const {$,esc,session}=this;this.panel('A little progress, together',`<button id="task-add">＋ Add a task</button>`,`<div class="task-columns">${['todo','doing','done'].map(status=>`<section class="task-column"><h3>${{todo:'To do',doing:'In progress',done:'Done'}[status]}</h3>${Object.values(session.state.tasks).filter(t=>t.room===session.room&&t.status===status).map(t=>`<div class="task-card">${esc(t.title)}<select data-task="${esc(t.id)}" aria-label="Status for ${esc(t.title)}">${['todo','doing','done'].map(s=>`<option value="${s}" ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>`).join('')}</section>`).join('')}</div>`);

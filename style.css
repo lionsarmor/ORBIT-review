@@ -50,7 +50,7 @@ html[data-skin=roddy]{--bg:#141514;--panel:#1c1d1b;--panel2:#2b2c28;--line:#ded1
 .lounge-logo{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:var(--panel2);color:var(--accent);overflow:hidden;font-size:13px;border:2px solid transparent;transition:border-color .15s,transform .15s}
 .lounge-logo img{width:100%;height:100%;object-fit:cover}
 .lounge-tile:hover .lounge-logo{transform:translateY(-2px);border-color:var(--muted)}
-.lounge-tile.selected .lounge-logo{border-color:#e6c387;outline:2px solid #c99c52;outline-offset:1px;box-shadow:0 0 13px #d4aa5e35}
+.lounge-tile.selected .lounge-logo{border-color:#e6c387;outline:0;box-shadow:0 0 13px #d4aa5e35}
 .lounge-caption{min-width:0;max-width:100%}.lounge-caption strong{display:block;font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #lounge-carousel .lounge-caption small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .lounge-unread{position:absolute;right:2px;top:0;background:var(--accent);color:var(--accentText);border-radius:12px;padding:2px 5px;min-width:16px;font-size:9px}
@@ -270,3 +270,19 @@ html[data-skin] .primary:not(:disabled):is(:hover,:focus-visible),
 #chat-overlay.visible{top:0;max-height:none}
 #chat-overlay.visible #messages{flex:1;min-height:0;max-height:none}
 #chat-overlay.visible #composer,#chat-overlay.visible #chat-context{flex-shrink:0}
+
+.chess-seats{display:flex;gap:10px;max-width:520px;margin:0 auto 12px}.chess-seats .player-seat{min-width:0}.chess-seats .player-seat span{font-size:11px}
+
+.message-file{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:8px 0;padding:10px 12px;background:color-mix(in srgb,var(--panel),transparent 12%);border:1px solid var(--line);border-radius:10px;max-width:320px}.message-file small{font-size:10px;color:var(--muted)}.message-file a{overflow-wrap:anywhere}.message-file button{font-size:11px;padding:6px 10px}.transfer-list>div{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+
+.youtube-pages{position:absolute;inset:0;pointer-events:none;z-index:3}.youtube-page{position:absolute;pointer-events:auto;background:#070b10}.youtube-page iframe{width:100%;height:100%;border:0}.youtube-container{display:flex;flex-direction:column;padding-bottom:44px}.youtube-container #youtube-surface{flex:1;min-height:200px}.youtube-container .video-sync-controls{position:static;order:-1;flex-shrink:0;margin:10px;z-index:4}.video-sync-controls small{font-size:10px;color:var(--muted);flex-basis:100%}.video-sync-controls a{font-size:10px;color:var(--accent)}
+
+/* Phone edition shares the desktop skin tokens and uses the existing navigation. */
+html[data-device=phone] body{height:100dvh;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+html[data-device=phone] #composer textarea{font-size:16px;min-width:0}
+html[data-device=phone] :is(#lounge-code,#web-address,#web-type-input){font-size:16px}
+html[data-device=phone] .chess-seats{gap:5px;flex-wrap:wrap}
+html[data-device=phone] #composer button{min-width:38px;min-height:38px}
+html[data-device=phone] .message-file{max-width:min(320px,80vw)}
+html[data-device=phone] .skin-options{gap:7px}
+html[data-device=phone] .activity-toolbar{flex-wrap:wrap}

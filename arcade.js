@@ -1,3 +1,4 @@
+import {device} from './platform.js';
 import {systems,detectROM} from './roms.js';
 
 const zeros=()=>Array(24).fill(0);
@@ -33,6 +34,7 @@ export class Arcade{
   if(!file)return;
   if(file.size>64*1024*1024)return this.notice('That cartridge is bigger than our spaceship! The limit is 64 MB.');
   let system,bytes;try{bytes=new Uint8Array(await file.arrayBuffer());system=detectROM(file.name,bytes);}catch(e){return this.notice(e.message);}
+  if(device.phone&&system==='n64')return this.notice('N64 hosting needs the full edition for now. Join a desktop-hosted game here, or play NES, SNES, Genesis or Atari on your phone.');
   if(this.destroyed)return;
   if(this.current())return this.notice('A game is already on! Use Game options → End game before dropping the next cartridge.');
   if([...this.games.values()].some(g=>g.host===this.session.id))return this.notice('You’re hosting a cartridge in another room. End that game before starting the next one.');

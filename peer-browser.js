@@ -1,5 +1,7 @@
+import {deployment} from './runtime.js';
 // Only a temporary companion capability is stored here, never in an ID card.
-const bridgeOrigin='http://127.0.0.1:8770';
+const port=Number.isInteger(deployment.peerBrowserPort)&&deployment.peerBrowserPort>=1024&&deployment.peerBrowserPort<=65535?deployment.peerBrowserPort:8770;
+const bridgeOrigin=`http://127.0.0.1:${port}`;
 let access='';try{access=sessionStorage.getItem('orbit.peer-browser')||'';}catch{}
 export function pairBrowser(){
  const nonce=crypto.randomUUID().replaceAll('-','');
@@ -17,7 +19,7 @@ export class PeerBrowser{
   if(!access)throw Error('Enable hosting on this computer first.');
   for(const name of ['loopback-network','local-network-access']){let permission;try{permission=await navigator.permissions?.query({name});}catch{continue;}if(permission?.state==='denied')throw Error('Allow Local network / Loopback access for ORBIT in your browser’s site settings, then try hosting again.');if(permission)break;}
   await new Promise((resolve,reject)=>{
-   const ws=this.socket=new WebSocket('ws://127.0.0.1:8770/browser');let started=false;
+   const ws=this.socket=new WebSocket(bridgeOrigin.replace('http:','ws:')+'/browser');let started=false;
    const timeout=setTimeout(()=>{reject(Error('The peer browser did not start. Check the desktop companion.'));this.close();},35000);
    ws.onopen=()=>ws.send(JSON.stringify({type:'auth',token:access}));
    ws.onmessage=e=>{let m;try{m=JSON.parse(e.data);}catch{return;}

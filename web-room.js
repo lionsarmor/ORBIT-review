@@ -1,3 +1,4 @@
+import {device} from './platform.js';
 import {PeerBrowser,pairBrowser} from './peer-browser.js';
 export function webURL(input){
  try{const url=new URL(String(input).trim());if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return null;return url.href;}catch{return null;}
@@ -16,6 +17,7 @@ export class WebRoom{
  // An optional embedded copy stays local; the primary action hosts one real browser.
  open(input,room=this.session.room){const url=webURL(input);if(!url)return this.toast('Choose an http or https webpage without a password in the address.');if(location.protocol==='https:'&&new URL(url).protocol!=='https:')return this.toast('Use an HTTPS page inside this secure lounge.');const current=this.session.state.web?.[room];if(current?.kind==='shared'&&current.url)return this.toast('Stop the shared Web event before opening separate copies.');return this.emit('web',{url,kind:'local'},room);}
  async startHosted(input,room=this.session.room){
+  if(device.phone){this.toast('Start shared Web events on a desktop peer. You can join and control them here.');return false;}
   const url=webURL(input);if(!url){this.toast('Choose a public http or https webpage.');return false;}
   if(this.stopped||!this.session.active||this.pending.has(room))return false;
   const existing=this.session.state.web?.[room];if(existing?.kind==='shared'&&existing.url){this.control(room,{type:'navigate',url});return true;}
@@ -32,6 +34,7 @@ export class WebRoom{
   finally{this.pending.delete(room);this.starting.delete(room);}
  }
  hostingHelp(input,room){
+  if(device.phone)return this.modal('Web events on your phone','<p>A desktop peer hosts the shared browser. Once they start the Web event, you can click, scroll and type here. Phone browser hosting is unavailable.</p>');
   this.modal('Host a little window',`<p>The person who starts this event hosts a fresh, temporary browser on their computer. Everyone in this lounge can see and control it, including anything typed into it.</p><p>Your personal browser and files stay separate. This event has no browser audio, downloads, camera, microphone or private-network access. Phone guests can join and control; hosting needs the desktop companion.</p><div class="button-group"><button id="web-pair" class="primary">Enable hosting on this computer ↗</button><button id="web-host-confirm">Start shared browser</button></div><p id="web-pair-status" role="status">Allow Local network / Loopback access when your browser asks to connect to the companion on this computer. If blocked, change that permission in this site’s browser settings. The ORBIT desktop shortcut starts the companion automatically. For another computer, <a href="downloads/orbit-peer-browser.zip" download>download the companion</a> and follow SETUP.txt.</p><p>The event closes when its host leaves, stops it, or the lounge is wiped. Switching views keeps it running.</p>`);
   this.$('#web-pair').onclick=async()=>{const status=this.$('#web-pair-status');status.textContent='Enable hosting in the local confirmation window, then return here.';try{await pairBrowser();if(status.isConnected)status.textContent='Ready. Choose Start shared browser.';}catch(e){if(status.isConnected)status.textContent=e.message;}};
   this.$('#web-host-confirm').onclick=()=>{this.closeModal();this.startHosted(input,room);};
@@ -74,7 +77,7 @@ export class WebRoom{
    $('#web-enter').onclick=()=>this.control(room,{type:'key',key:'Enter'});
   }
   const address=$('#web-address');if(document.activeElement!==address)address.value=state?.url||address.value||'';
-  $('#web-reload').disabled=$('#web-stop').disabled=!state?.url;$('#web-back').hidden=!shared;$('#web-local').hidden=shared;$('#web-type-form').hidden=!shared;$('#web-load').textContent=shared?'Go together ↗':'Host together ↗';
+  $('#web-reload').disabled=$('#web-stop').disabled=!state?.url;$('#web-back').hidden=!shared;$('#web-local').hidden=shared;$('#web-type-form').hidden=!shared;$('#web-load').textContent=shared?'Go together ↗':device.phone?'Desktop host needed':'Host together ↗';$('#web-load').disabled=device.phone&&!shared;
   $('#web-status').textContent=shared?`One browser · hosted by ${session.members.get(state.actor)?.name||'a lounge member'} · everyone can control · video only`:state?.url?'Separate copies · clicks and sign-ins stay local':'Browse together on a peer’s computer, or open separate copies';
   const original=$('#web-original');original.hidden=!state?.url;if(state?.url)original.href=state.url;else original.removeAttribute('href');
   const surface=$('#web-surface');

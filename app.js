@@ -1,3 +1,6 @@
+import {compactLog,validWatch} from './compact-log.js';
+import {device,installPhone,registerShell} from './platform.js';
+import {chessEvent} from './chess-room.js';
 import {Mesh,b64,bytes,random} from './mesh.js';
 import {createAuthority} from './lounge-authority.js';
 import {LoungeWipe} from './lounge-wipe.js';
@@ -31,7 +34,7 @@ export let mesh,session,activities;
 let unread,awayReplies,due,idleTimer,soundEnabled=false,clock24=false;
 const connectors=new Connectors({modal,closeModal,toast,esc,$});
 function context(){
- const l={key:uid(),unread:new Map(),awayReplies:new Set(),due:new Set(),watchTicks:new Map(),session:{active:false,id:'',name:identity.value.name,profile:{name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about},room:'lounge',dm:null,members:new Map(),events:new Map(),eventBytes:0,private:[],drafts:new Map(),clock:0,state:{},privacy:'direct',notifications:identity.value.settings['orbit.notifications']==='1'&&'Notification'in window&&Notification.permission==='granted'},mesh:new Mesh()};
+ const l={messageWindows:new Map(),key:uid(),unread:new Map(),awayReplies:new Set(),due:new Set(),watchTicks:new Map(),session:{active:false,id:'',name:identity.value.name,profile:{name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about},room:'lounge',dm:null,members:new Map(),events:new Map(),eventBytes:0,private:[],drafts:new Map(),clock:0,state:{},privacy:'direct',notifications:identity.value.settings['orbit.notifications']==='1'&&'Notification'in window&&Notification.permission==='granted'},mesh:new Mesh()};
  l.activities=makeActivities(l);
  l.wipe=new LoungeWipe({mesh:l.mesh,session:l.session,uid,layout:()=>design({...l.session.state,rooms:Object.values(l.session.state.savedRooms||l.session.state.rooms||{})}),apply:layout=>resetLounge(l,layout),change:opened=>refreshWipe(l,opened),notice:toast});
  wire(l);return l;
@@ -39,7 +42,7 @@ function context(){
 function makeActivities(l){
  let a;const live=()=>l.activities===a;
  const scopedMesh={clockOffsets:l.mesh.clockOffsets,lastOffsets:l.mesh.lastOffsets,send:(...args)=>live()?l.mesh.send(...args):Promise.resolve(),share:(stream,...args)=>{if(live())return l.mesh.share(stream,...args);stream?.getTracks().forEach(t=>t.stop());return Promise.resolve();}};
- a=new Activities({emit:(...args)=>live()&&within(l,()=>emit(...args)),timeline:(...args)=>live()&&within(l,()=>sendTimeline(...args)),session:l.session,toast,modal:(...args)=>live()&&modal(...args),closeModal,esc,$,safeURL,uid,mesh:scopedMesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});return a;
+ a=new Activities({emit:(...args)=>live()&&within(l,()=>emit(...args)),refresh:reason=>live()&&within(l,()=>render(reason)),timeline:(...args)=>live()&&within(l,()=>sendTimeline(...args)),session:l.session,toast,modal:(...args)=>live()&&modal(...args),closeModal,esc,$,safeURL,uid,mesh:scopedMesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});return a;
 }
 function bind(l){current=l;mesh=l.mesh;session=l.session;activities=l.activities;unread=l.unread;awayReplies=l.awayReplies;due=l.due;}
 function within(l,work){const old=current;bind(l);try{return work();}finally{bind(old);}}
@@ -67,11 +70,11 @@ $('#join-space').onclick=()=>enter(false);
 let initialInvite='';if(location.hash.length>1){initialInvite=location.href;$('#join-code').value=initialInvite;history.replaceState(null,'',location.pathname);}
 export async function enter(create,input=$('#join-code').value,template=null){
  const name=$('#entry-name').value.trim().slice(0,24)||identity.value.name;
- identity.value.name=name;saveIdentity();let saved,joinKey,joiningHere=false;
+ identity.value.name=name;saveIdentity();if(!navigator.onLine)return toast('You’re offline. Your local ID and saved lounges are still here; connect to the network to enter a lounge.');let saved,joinKey,joiningHere=false;
  try{
   if(create&&identity.value.lounges.length>=50)throw Error('Your ID remembers up to 50 lounges. Forget an old invitation first.');
   if(!create){const parsed=invitation(input);input=parsed.code;joinKey=parsed.id;if(joining.has(joinKey))return toast('That lounge is already connecting.');const existing=lounges.get(parsed.id);if(existing){activate(existing);return;}saved=identity.value.lounges.find(x=>x.id===parsed.id);if(!saved){if(identity.value.lounges.length>=50)throw Error('Your ID can remember up to 50 lounges.');saved={...parsed,name:'Invited lounge',logo:'',alias:'',auto:false,design:null};identity.value.lounges.push(saved);if(identity.value.lounges.length>50)throw Error('Your ID can remember up to 50 lounges.');saveIdentity();}}
-  if(lounges.size+joining.size>=4)throw Error('Up to four live lounges per window in this build. Leave one before joining another.');
+  if(lounges.size+joining.size>=device.liveLounges)throw Error(`Up to ${device.liveLounges} live lounges in ${device.phone?'ORBIT Phone':'this window'}. Leave one before joining another.`);
   joinKey=joinKey||uid();joining.add(joinKey);joiningHere=true;$('#entry-status').textContent='Connecting…';await init();const l=context();l.session.privacy=identity.value.settings['orbit.privacy']||homeContext.session.privacy||selected?.session.privacy||'direct';
   try{const creator=create?await createAuthority():{secret:saved?.creatorSecret||''};const result=await l.mesh.start(input,create,{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'},l.session.privacy,creator);Object.assign(l.session,{active:true,id:result.id,name,profile:{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'}});l.session.members.set(result.id,l.session.profile);l.key=l.mesh.room;lounges.set(l.key,l);l.status='connected';
    if(create){saved={id:l.key,code:result.code,name:template?.name||'Tonight',logo:template?.logo||'',alias:'',auto:false,design:template||null,creatorSecret:creator.secret};identity.value.lounges.push(saved);}
@@ -100,11 +103,12 @@ export function emit(type,data={},room=session.room){
  const event={id:uid(),actor:session.id,n:++session.clock,at:Date.now(),room,type,data};
  if(accept(event,session.id)){mesh.send({type:'event',event});return event;}
 }
-const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host','web','web-location','web-end']);
+const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','chess-seat','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host','web','web-location','web-end']);
 function accept(event,actor,snapshot=false){
  if(!event||!allowed.has(event.type)||typeof event.id!=='string'||event.id.length>40||typeof event.actor!=='string'||(!snapshot&&event.actor!==actor)||!Number.isSafeInteger(event.n)||event.n<1||event.n>1e9||!event.data||typeof event.data!=='object'||typeof event.room!=='string')return false;
  if(session.events.has(event.id))return false;
  const size=JSON.stringify(event).length;
+ if(session.events.size>=512&&(session.events.size%64===0||session.eventBytes+size>1400000)){const retained=compactLog(session.events.values());session.events=new Map(retained.map(e=>[e.id,e]));session.eventBytes=retained.reduce((bytes,e)=>bytes+JSON.stringify(e).length,0);}
  if(session.events.size>=2000||session.eventBytes+size>1500000){toast('This space has reached its activity limit. Start a fresh space to continue.');return false;}
  if(size>400000)return false;
  if(['__proto__','constructor','prototype'].includes(event.room)||['__proto__','constructor','prototype'].includes(event.data.id)||['__proto__','constructor','prototype'].includes(event.data.message))return false;
@@ -139,7 +143,7 @@ function rebuild(){
    case 'queue-remove':delete s.queue[d.id];break;
    case 'stroke':if(Array.isArray(d.points)&&d.points.length<3000){s.strokes[r]??=[];s.strokes[r].push(d);}break;
    case 'board-clear':s.strokes[r]=[];break;
-   case 'chess':try{const previous=s.chess[r]?.fen||'';if(d.reset)s.chess[r]={fen:'',computer:!!d.computer};else if(d.before===previous)s.chess[r]={...s.chess[r],fen:JSON.parse(chess_play(previous,d.move)).fen};}catch{}break;
+   case 'chess':case 'chess-seat':if(s.rooms[r])s.chess[r]=chessEvent(s.chess[r],e,{owner:s.owner,members:session.members,core:{chess_state,chess_play}});break;
    case 'game':if(d.action==='start'&&(!s.games[r]||!session.members.has(s.games[r].host))&&typeof d.id==='string'&&d.id.length<=40&&typeof d.name==='string'&&d.name.length<=100&&['nes','snes','n64','genesis','atari'].includes(d.system))s.games[r]={id:d.id,name:d.name,system:d.system,host:e.actor};else if(d.action==='end'&&s.games[r]?.id===d.id&&s.games[r]?.host===e.actor)delete s.games[r];break;
    case 'game-standby':if(s.games[r]?.id===d.id&&s.games[r].host===e.actor)s.games[r].standby=d.next;break;
    case 'game-host':if(s.games[r]?.id===d.id&&s.games[r].host===d.previous&&(e.actor===d.previous||e.actor===s.games[r].standby&&!session.members.has(d.previous))){s.games[r].host=d.next;s.games[r].standby=null;}break;
@@ -147,7 +151,7 @@ function rebuild(){
    case 'task':if(typeof d.title==='string'&&['todo','doing','done'].includes(d.status))s.tasks[d.id]={...d,room:r};break;
    case 'link':if(typeof d.id==='string'&&/^[A-Za-z0-9_-]{12,40}$/.test(d.id)&&!['__proto__','constructor','prototype'].includes(d.id)&&safeURL(d.url)&&!Object.hasOwn(s.links,d.id))s.links[d.id]={id:d.id,url:safeURL(d.url),title:String(d.title||'').slice(0,100),room:r,actor:e.actor,thumbnail:''};break;
    case 'link-preview':{const link=s.links[d.id];if(link?.actor===e.actor&&link.room===r&&link.url===d.url){link.thumbnail=previewImage(d.thumbnail);if(!link.title&&typeof d.title==='string')link.title=d.title.slice(0,100);}break;}
-   case 'watch':if(!d.url||safeURL(d.url)||d.url.startsWith('local:'))s.watch[r]={...d,actor:e.actor,event:e.id};break;
+   case 'watch':if(validWatch(d))s.watch[r]={...d,actor:e.actor,event:e.id};break;
    case 'web':if(s.rooms[r]&&(d.url===''||webURL(d.url))){const old=s.web[r];if(d.browser&&old?.event!==d.browser)break;if(d.url&&old?.kind==='shared'&&old.url)break;s.web[r]={url:d.url?webURL(d.url):'',kind:d.kind==='shared'?'shared':'local',actor:e.actor,event:e.id};}break;
    case 'web-location':if(s.web[r]?.event===d.browser&&s.web[r].actor===e.actor&&s.web[r].url&&webURL(d.url))s.web[r].url=webURL(d.url);break;
    case 'web-end':if(s.web[r]?.event===d.browser&&(s.web[r].actor===e.actor||s.owner===e.actor&&!session.members.has(s.web[r].actor)))s.web[r].url='';break;
@@ -215,11 +219,13 @@ function renderMessages(){
  if(current!==selected)return;
  const items=session.dm?session.private.filter(m=>m.from===session.dm||m.to===session.dm).map(m=>({id:m.id,actor:m.from,at:m.at,data:{name:session.members.get(m.from)?.name||'Member',text:m.text}})):session.state.messages?.filter(m=>m.room===session.room)||[];
  const box=$('#messages'),atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<50;
- box.innerHTML=items.slice(-100).map(m=>{
+ const key=session.dm||session.room,windowSize=current.messageWindows.get(key)||100;
+ box.innerHTML=(items.length>windowSize?'<button id="messages-earlier" class="subtle wide">↑ Earlier messages from this visit</button>':'')+items.slice(-windowSize).map(m=>{
   const d=m.data,reactions=Object.values(session.state.reactions[m.id]||{}),image=typeof d.image==='string'&&/^data:image\/(png|jpeg|gif|webp);base64,[a-zA-Z0-9+/=]+$/.test(d.image)?d.image:null;
-  return `<article class="message" data-message="${esc(m.id)}"><span class="avatar">${esc(String(d.name||'?').slice(0,2).toUpperCase())}</span><div class="message-body"><strong>${esc(d.name)}</strong><time>${new Date(m.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:!clock24})}</time><p>${linkify(d.text)}</p>${image?`<img src="${image}" alt="Shared image">`:''}${reactions.length?`<button class="reaction" data-react="${esc(m.id)}">${esc(reactions.join(' '))}</button>`:''}${!session.dm?`<button class="react-add" data-react="${esc(m.id)}" aria-label="React to message">☺＋</button>`:''}</div></article>`;
+  return `<article class="message" data-message="${esc(m.id)}"><span class="avatar">${esc(String(d.name||'?').slice(0,2).toUpperCase())}</span><div class="message-body"><strong>${esc(d.name)}</strong><time>${new Date(m.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:!clock24})}</time><p>${linkify(d.text)}</p>${image?`<img src="${image}" alt="Shared image">`:''}${d.attachment?activities.attachments.html(d.attachment):''}${reactions.length?`<button class="reaction" data-react="${esc(m.id)}">${esc(reactions.join(' '))}</button>`:''}${!session.dm?`<button class="react-add" data-react="${esc(m.id)}" aria-label="React to message">☺＋</button>`:''}</div></article>`;
  }).join('');
  if(atBottom)box.scrollTop=box.scrollHeight;
+ const earlier=$('#messages-earlier');if(earlier)earlier.onclick=()=>{const height=box.scrollHeight,top=box.scrollTop;current.messageWindows.set(key,windowSize+100);renderMessages();box.scrollTop=top+box.scrollHeight-height;};
 }
 function linkify(t){return String(t).split(/(https?:\/\/[^\s<>]+)/g).map(part=>/^https?:\/\//.test(part)?`<a href="${esc(part)}" target="_blank" rel="noopener noreferrer">${esc(part.length>60?part.slice(0,57)+'…':part)}</a>`:facesIn(esc(part))).join('');}
 function draftKey(){return session.dm||session.room;}
@@ -237,7 +243,7 @@ $('#activity').onchange=e=>{session.dm=null;activities.backgroundOnly=false;emit
 $('#start-watch').onclick=()=>selected?activities.shareDialog():showWelcome();
 $('#share').onclick=()=>activities.shareDialog();
 $('#invite').onclick=()=>{
- const link=new URL(`#${mesh.code}`,appBase).href;
+ const link=new URL(`#${mesh.code}`,device.phone?new URL('phone/',appBase):appBase).href;
  modal('Bring your people',`<p>Anyone with this code can join or reopen this lounge. Share it privately. When everyone leaves, chat and live activities are cleared.</p><label>Invitation link<textarea id="invite-value" rows="4" readonly>${esc(link)}</textarea></label><button id="copy-invite" class="primary wide">Copy invitation</button><div class="notice" style="margin-top:16px">Up to 8 people in this first build. Friends need to reach this app’s address. ${['localhost','127.0.0.1'].includes(location.hostname)?'A localhost link only works on this computer.':'This link uses the live review connection helper.'}</div>`);
  $('#copy-invite').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Invitation copied.');}catch{$('#invite-value').select();toast('Select and copy the invitation.');}};
 };
@@ -270,14 +276,11 @@ $('#composer').onsubmit=e=>{
 };
 $('#message').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#composer').requestSubmit();}};
 $('#emoji').onclick=()=>{modal('Say it with a face',`<p>The original BUDDY faces</p><div class="button-group">${['S','G','W','F','A'].map(c=>`<button data-emoji=":${c}:">${face(c)}</button>`).join('')}</div><div class="emoji-grid" style="margin-top:16px">${['🙂','😄','😂','🥰','😎','🤔','😴','🥳','👽','🛸','❤️','👍','🔥','🎮','🍿','✨'].map(x=>`<button data-emoji="${x}">${x}</button>`).join('')}</div><p>Images and animated GIFs can also be shared with the ＋ button.</p>`);$('#modal-body').onclick=e=>{const b=e.target.closest('[data-emoji]');if(b){$('#message').value+=b.dataset.emoji;closeModal();$('#message').focus();}};};
-$('#messages').onclick=e=>{const b=e.target.closest('[data-react]');if(b)emit('reaction',{message:b.dataset.react,emoji:'👍'});};
+$('#messages').onclick=e=>{activities.attachments.click(e);const b=e.target.closest('[data-react]');if(b)emit('reaction',{message:b.dataset.react,emoji:'👍'});};
 $('#attachment').onclick=()=>{if(session.dm)return toast('Image sharing is available in rooms.');$('#image-file').click();};
 $('#image-file').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
- if(f.size>250000)return toast('Choose an image or GIF smaller than 250 KB for this mesh build.');
- if(!['image/png','image/jpeg','image/gif','image/webp'].includes(f.type))return toast('Choose a PNG, JPEG, WebP or GIF.');
- const data=await new Promise(resolve=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.readAsDataURL(f);});
- emit('message',{text:f.name,name:session.profile.name,image:data});
+ try{await activities.attachments.publish(f);}catch(error){toast(error.message);}
 };
 function wakeChat(){$('#chat-overlay').classList.remove('idle');clearTimeout(idleTimer);idleTimer=setTimeout(()=>$('#chat-overlay').classList.add('idle'),7000);}
 $('#chat-overlay').onpointermove=wakeChat;$('#message').oninput=wakeChat;
@@ -339,7 +342,8 @@ $('#settings').onclick=settings;
 function settings(){
  modal('Make it yours',`<div class="skin-options">${['orbit','buddy','roddy'].map(s=>`<button class="skin-tile ${document.documentElement.dataset.skin===s?'selected':''}" data-skin="${s}"><img src="assets/${{orbit:'orbit.svg',buddy:'buddy.png',roddy:'roddy-full.svg'}[s]}" alt=""><strong>${s.toUpperCase()}</strong></button>`).join('')}</div>
  <div class="settings-section"><h3>Chat background</h3><div class="background-options"><button data-background-choice="default">Default ORBIT scene</button><button data-background-choice="plain">Plain background</button><button id="background-image">Your image…</button><button id="background-remove">Remove saved image</button></div><input id="background-file" type="file" accept="image/jpeg,image/png,image/webp" hidden><p>Only on this device. Choosing an image saves a resized copy as a local preference. Use “Chat background” at the top to return to the scene while a game keeps running.</p></div>
-<button id="settings-id" class="wide">Your local ID · import / export / avatar ↗</button><button id="settings-lounges" class="wide">Saved lounges &amp; designs ↗</button>
+<button id="settings-id" class="wide">Your local ID · import / export / avatar ↗</button><button id="settings-lounges" class="wide">Saved lounges &amp; designs ↗</button><button id="settings-transfers" class="wide" ${session.active?'':'disabled'}>Live transfers ↗</button>
+ <div class="settings-section"><h3>${device.phone?'ORBIT Phone':'Phone edition'}</h3><p>${device.phone?'Same lounge style, tuned for phones: two live lounges, 8 MB files, gamepad and touch input, shared Web participation. Hosting a shared browser stays on desktop. Phone suspension still depends on the OS.':'Open the dedicated phone edition on your phone. It uses this site’s same local ID, the same skins and reduced resource limits.'}</p><a id="phone-open" href="${new URL(device.phone?'./':'phone/',appBase)}">${device.phone?'Open full desktop edition ↗':'Open ORBIT Phone ↗'}</a>${device.phone?'<button id="phone-install">Install / add to home screen ↗</button>':''}</div>
  <div class="settings-section"><h3>Your presence</h3><form id="profile-form"><div class="form-row"><label>Name<input id="profile-name" maxlength="24" value="${esc(identity.value.name)}"></label><label>Status<select id="profile-status"><option>Here</option><option>Away</option><option>Busy</option></select></label></div><label>About you<input id="profile-about" maxlength="160" value="${esc(identity.value.about)}"></label><label>Away reply<input id="profile-away" maxlength="160" value="${esc(session.profile.away||'')}"></label><button>Update presence</button></form></div>
  <div class="settings-section"><h3>This device</h3><label>Chat opacity when idle<input id="opacity" type="range" min="0" max="70" value="${stored('orbit.opacity')||25}"></label><label class="toggle-row">Desktop notifications<input id="notifications" type="checkbox" ${session.notifications?'checked':''}></label><label class="toggle-row">Original BUDDY message sound<input id="sounds" type="checkbox" ${soundEnabled?'checked':''}></label><label class="toggle-row">24-hour clock<input id="clock24" type="checkbox" ${clock24?'checked':''}></label><button id="controllers" class="wide">Gamepads & controls ↗</button></div>
  <div class="settings-section"><h3>Connection privacy</h3><label>For the next space<select id="privacy"><option value="direct">Direct first · encrypted relay fallback</option><option value="relay">Hide my IP · relay only</option></select></label><p>Direct peers can see each other’s IP address. Relay only requires your own configured TURN service and never falls back to direct.</p><div class="notice">Early development build: encrypted peer transport and encrypted messages, with an unaudited invite-key handshake. Do not use for sensitive conversations yet.</div></div>
@@ -348,7 +352,8 @@ function settings(){
  document.querySelectorAll('[data-background-choice]').forEach(b=>b.onclick=()=>background(b.dataset.backgroundChoice));
  $('#background-image').onclick=()=>$('#background-file').click();$('#background-file').onchange=e=>chooseBackground(e.target.files[0]);
  $('#background-remove').onclick=async()=>{delete identity.value.settings['orbit.background.image'];identity.value.settings['orbit.background']='default';await saveIdentity();customBackground='';try{localStorage.removeItem('orbit.background.image');}catch{}background('default');toast('Saved background image removed.');};
- $('#settings-id').onclick=identityDialog;$('#settings-lounges').onclick=()=>{closeModal();$('#lounge-library').showModal();};
+ if($('#phone-install'))$('#phone-install').onclick=async()=>{if(!await installPhone())toast('Use your browser’s Install app or Add to Home Screen option. On iPhone, open this page in Safari.');};
+ $('#settings-transfers').onclick=()=>activities.attachments.dialog();$('#settings-id').onclick=identityDialog;$('#settings-lounges').onclick=()=>{closeModal();$('#lounge-library').showModal();};
  $('#profile-status').value=session.profile.status||'Here';
  $('#profile-form').onsubmit=e=>{e.preventDefault();session.profile={name:$('#profile-name').value.trim()||session.name,status:$('#profile-status').value,about:$('#profile-about').value,away:$('#profile-away').value};identity.value.name=session.profile.name;identity.value.about=session.profile.about;$('#entry-name').value=session.profile.name;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,about:identity.value.about,avatar:identity.value.avatar};session.members.set(session.id,session.profile);awayReplies.clear();emit('profile',session.profile);});renderHub();toast('Profile saved on this device.');};
  $('#opacity').oninput=e=>{document.documentElement.style.setProperty('--idle-opacity',e.target.value/100);preference('orbit.opacity',e.target.value);};
@@ -426,7 +431,7 @@ function renderHub(){
 }
 function savedOptions(id){
  const entry=identity.value.lounges.find(e=>e.id===id);if(!entry)return;const l=lounges.get(id);
- modal('Saved lounge',`<p>${esc(entry.name)}</p><label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button><button id="saved-wipe">✦ Wipe lounge…</button>':'<button id="saved-open">Try joining</button>'}${l?'':'<button id="saved-forget" class="danger">Forget invitation</button>'}<button id="saved-left">Move left</button></div><p>Closing ORBIT keeps this lounge in your ID. Leave removes its saved code and design from this ID. Anyone who kept their code can reopen an empty lounge; old chat and activities do not return.</p>`);
+ modal('Saved lounge',`<p>${esc(entry.name)}</p>${l?`<p class="lounge-memory">${l.session.events.size.toLocaleString()} / 2,000 retained operations · ${(l.session.eventBytes/1000000).toFixed(2)} / 1.50 MB. Superseded control updates compact automatically. Chat and visible activity remain until a wipe.</p>`:''}<label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button><button id="saved-wipe">✦ Wipe lounge…</button>':'<button id="saved-open">Try joining</button>'}${l?'':'<button id="saved-forget" class="danger">Forget invitation</button>'}<button id="saved-left">Move left</button></div><p>Closing ORBIT keeps this lounge in your ID. Leave removes its saved code and design from this ID. Anyone who kept their code can reopen an empty lounge; old chat and activities do not return.</p>`);
  $('#saved-apply').onclick=()=>{entry.alias=$('#lounge-alias').value.trim();entry.auto=$('#lounge-auto').checked;saveIdentity();closeModal();renderHub();};
  $('#saved-wipe')?.addEventListener('click',()=>{if(!l.wipe.ballot)l.wipe.message='';wipeDialog(l);});
  $('#saved-retry')?.addEventListener('click',()=>{l.mesh.retry();closeModal();});
@@ -473,4 +478,7 @@ function designer(){
 rebuild();activate(null);wakeChat();$('#identity-warning').hidden=!storageError;$('#identity-warning').textContent=storageError;$('#create-space').disabled=$('#join-space').disabled=$('#entry-name').disabled=$('#join-code').disabled=false;
 if(!identity.hasStoredCard||initialInvite||storageError)showWelcome();
 if(initialInvite){$('#lounge-code').value=initialInvite;toast('Invite ready. Use Join to enter this lounge.');}
-for(const saved of identity.value.lounges.filter(l=>l.auto).slice(0,4))enter(false,saved.code);
+for(const saved of identity.value.lounges.filter(l=>l.auto).slice(0,device.liveLounges))enter(false,saved.code);
+
+registerShell();
+window.addEventListener('offline',()=>toast('Network unavailable. Your ID stays saved here; live activity recovery depends on the connection.'));
