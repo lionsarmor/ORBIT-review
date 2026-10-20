@@ -114,7 +114,7 @@ export class Activities{
   for(const [room,video]of this.players){const w=this.session.state.watch?.[room];if(!w||video.dataset.source!==w.url||video.srcObject||w.url.startsWith('local:'))continue;
    const target=this.watchTime(w),delta=target-video.currentTime;
    if(!this.session.members.has(w.actor)&&this.session.state.owner===this.session.id){this.emit('watch',{...w,time:target},room);continue;}
-   if(w.actor===this.session.id&&performance.now()-(this.lastTimeline||0)>2000&&video.readyState>1){this.lastTimeline=performance.now();this.emit('watch',{url:w.url,title:w.title,playing:!video.paused,time:video.currentTime},room);}
+   if(w.actor===this.session.id&&performance.now()-(video.lastTimeline||0)>2000&&video.readyState>1){video.lastTimeline=performance.now();this.timeline(room,{playing:!video.paused,time:video.currentTime});}
    if(video.readyState>1){if(Math.abs(delta)>1.2){video.expectedSeek=target;video.currentTime=target;}else video.playbackRate=w.playing&&Math.abs(delta)>.12?Math.max(.97,Math.min(1.03,1+delta*.04)):1;if(w.playing&&!video.dataset.buffering)video.play().catch(()=>{});if(!w.playing)video.pause();}
   }
  }

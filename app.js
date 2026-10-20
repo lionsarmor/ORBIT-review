@@ -24,8 +24,8 @@ export let mesh,session,activities;
 let unread,awayReplies,due,idleTimer,soundEnabled=false,clock24=false;
 const connectors=new Connectors({modal,closeModal,toast,esc,$});
 function context(){
- const l={key:uid(),unread:new Map(),awayReplies:new Set(),due:new Set(),session:{active:false,id:'',name:identity.value.name,profile:{name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about},room:'lounge',dm:null,members:new Map(),events:new Map(),eventBytes:0,private:[],drafts:new Map(),clock:0,state:{},privacy:'direct',notifications:identity.value.settings['orbit.notifications']==='1'&&'Notification'in window&&Notification.permission==='granted'},mesh:new Mesh()};
- l.activities=new Activities({emit:(...args)=>within(l,()=>emit(...args)),session:l.session,toast,modal,closeModal,esc,$,safeURL,uid,mesh:l.mesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});
+ const l={key:uid(),unread:new Map(),awayReplies:new Set(),due:new Set(),watchTicks:new Map(),session:{active:false,id:'',name:identity.value.name,profile:{name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about},room:'lounge',dm:null,members:new Map(),events:new Map(),eventBytes:0,private:[],drafts:new Map(),clock:0,state:{},privacy:'direct',notifications:identity.value.settings['orbit.notifications']==='1'&&'Notification'in window&&Notification.permission==='granted'},mesh:new Mesh()};
+ l.activities=new Activities({emit:(...args)=>within(l,()=>emit(...args)),timeline:(...args)=>within(l,()=>sendTimeline(...args)),session:l.session,toast,modal,closeModal,esc,$,safeURL,uid,mesh:l.mesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});
  wire(l);return l;
 }
 function bind(l){current=l;mesh=l.mesh;session=l.session;activities=l.activities;unread=l.unread;awayReplies=l.awayReplies;due=l.due;}
@@ -96,6 +96,12 @@ function accept(event,actor,snapshot=false){
  }
  render(event.type);return true;
 }
+function acceptTimeline(actor,tick){
+ const w=session.state.watch?.[tick.room];if(!w||w.actor!==actor||w.event!==tick.control||typeof tick.playing!=='boolean'||!Number.isFinite(tick.time)||tick.time<0||tick.time>1e7||!Number.isFinite(tick.stamp)||tick.stamp<0)return;
+ const old=current.watchTicks.get(tick.room);if(old?.control===tick.control&&old.stamp>=tick.stamp)return;
+ const value={control:tick.control,time:tick.time,stamp:tick.stamp,playing:tick.playing};current.watchTicks.set(tick.room,value);Object.assign(w,value);
+}
+function sendTimeline(room,values){const w=session.state.watch?.[room];if(!w||w.actor!==session.id)return;const tick={type:'watch-tick',room,control:w.event,time:values.time,playing:values.playing,stamp:performance.now()};acceptTimeline(session.id,tick);mesh.send(tick);}
 function rebuild(){
  const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},chess:{},rom:{},games:{},watch:{},profiles:{},owner:'',logo:'',background:'',accent:''};
  const ordered=[...session.events.values()].sort((a,b)=>a.n-b.n||a.actor.localeCompare(b.actor)||a.id.localeCompare(b.id));
@@ -126,6 +132,7 @@ function rebuild(){
  }
  for(const key of Object.keys(s.games))if(!s.rooms[key])delete s.games[key];
  if(!s.rooms[session.room])session.room=Object.keys(s.rooms)[0]||'lounge';
+ for(const [room,tick]of current.watchTicks){if(s.watch[room]?.event===tick.control)Object.assign(s.watch[room],tick);else current.watchTicks.delete(room);}
  session.state=s;
  for(const [id,p]of Object.entries(s.profiles))if(session.members.has(id))session.members.set(id,p);
 }
@@ -133,6 +140,7 @@ function wire(l){
 l.mesh.addEventListener('joined',e=>within(l,()=>{
  const {id,profile}=e.detail;session.members.set(id,profile);
  mesh.send({type:'snapshot',events:[...session.events.values()],profiles:[...session.members]},id);
+ for(const [room,tick]of current.watchTicks)mesh.send({type:'watch-tick',room,...tick},id);
  activities.arcade.peerJoined(id);
  render();toast(`${profile.name||'Someone'} joined your space.`);
 }));
@@ -140,7 +148,8 @@ l.mesh.addEventListener('left',e=>within(l,()=>{const name=session.members.get(e
 l.mesh.addEventListener('data',e=>within(l,()=>{
  if(!session.active)return;
  const {id,value:v}=e.detail;
- if(v.type==='event')accept(v.event,id);
+ if(v.type==='watch-tick')acceptTimeline(id,v);
+ else if(v.type==='event')accept(v.event,id);
  else if(v.type==='snapshot'&&Array.isArray(v.events)&&v.events.length<=2000){
   // Snapshots are invite-holder assertions, never a cryptographic identity proof.
   for(const event of v.events)if(!session.events.has(event?.id))accept(event,id,true);
@@ -211,7 +220,7 @@ $('#leave').onclick=()=>leave();
 function electOwner(l){within(l,()=>{const previous=session.state.owner;if(previous&&!session.members.has(previous)){const next=[...session.members.keys()].sort()[0];if(next===session.id)emit('owner',{previous,next});}});}
 export function leaveLounge(l=selected){
  if(!l)return;within(l,()=>{const next=[...session.members.keys()].filter(id=>id!==session.id).sort()[0];if(session.state.owner===session.id&&next)emit('owner',{previous:session.id,next});});
- l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
+ l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.watchTicks.clear();l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
  if(selected===l)activate(null);renderHub();
 }
 function leave(){leaveLounge();}
