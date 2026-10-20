@@ -9,7 +9,7 @@ export function invitation(input){
  try{if(code.includes('://')){const u=new URL(code);if(!['https:','http:'].includes(u.protocol))throw Error();code=u.hash.slice(1);}const token=JSON.parse(decode.decode(Uint8Array.from(atob(code.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0))));if(token.v!==1||!/^[-\w]{24}$/.test(token.r)||!/^[-\w]{43}$/.test(token.k))throw Error();if(token.c!==undefined&&!/^[-\w]{87}$/.test(token.c))throw Error();return {id:token.r,code};}catch{throw Error('That lounge code is not valid.');}
 }
 export function design(d={}){
- const modes=['ambient','watch','whiteboard','chess','emulator','tasks','news'];
+ const modes=['ambient','watch','whiteboard','chess','emulator','tasks','news','web'];
  const rooms=Array.isArray(d.rooms)?d.rooms.slice(0,40).map((r,i)=>({id:/^[\w-]{1,40}$/.test(r.id)&&!['__proto__','constructor','prototype'].includes(r.id)?r.id:`room-${i}`,name:text(r.name,40)||'Room',icon:text(r.icon,8),mode:modes.includes(r.mode)?r.mode:'ambient'})):[];
  if(new Set(rooms.map(r=>r.id)).size!==rooms.length)throw Error('Duplicate room IDs in design.');
  return {name:text(d.name,40)||'My lounge',logo:image(d.logo,70000),background:image(d.background),accent:d.accent===''?'':/^#[a-f\d]{6}$/i.test(d.accent)?d.accent:'#d4a06c',rooms};

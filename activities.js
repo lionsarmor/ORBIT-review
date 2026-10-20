@@ -1,10 +1,11 @@
 import {Arcade} from './arcade.js';
+import {WebRoom} from './web-room.js';
 import {fetchPreview,previewImage} from './link-preview.js';
 export class Activities{
- constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
- resetView(){this.arcade.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
- deactivate(){this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
- stop(){this.stopped=true;for(const controller of this.pendingPreviews||[])controller.abort();this.pendingPreviews?.clear();clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
+ constructor(api){Object.assign(this,api);this.web=new WebRoom(api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
+ resetView(){this.arcade.park();this.web.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
+ deactivate(){this.web.park();this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
+ stop(){this.stopped=true;this.web.stop();for(const controller of this.pendingPreviews||[])controller.abort();this.pendingPreviews?.clear();clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
  setBackgroundOnly(value){this.backgroundOnly=value;this.render(this.session.state.rooms[this.session.room]?.mode||'ambient','view');}
  render(mode,reason){
   if(!this.active)return;this.arcade.mute(false);for(const a of this.voices.values())a.muted=false;
@@ -12,7 +13,7 @@ export class Activities{
   const toggle=this.$('#background-toggle');if(toggle){toggle.hidden=mode==='ambient'&&!this.backgroundOnly;toggle.textContent=this.backgroundOnly?'Return to activity':'Chat background';toggle.setAttribute('aria-pressed',String(!!this.backgroundOnly));}
   const view=this.backgroundOnly?'ambient':mode;
   const changed=this.mode!==view||this.room!==this.session.room||reason==='view';
-  if(changed){this.arcade.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;this.$('#activity-content').replaceChildren();}
+  if(changed){this.arcade.park();this.web.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;this.$('#activity-content').replaceChildren();}
   this.$('#ambient').style.display=view==='ambient'?'':'none';
   if(view==='ambient')return;
   if(view==='watch'){if(changed||reason==='watch')this.renderWatch();return;}
@@ -20,6 +21,7 @@ export class Activities{
   if(view==='chess'){if(changed||reason==='chess')this.chess();return;}
   if(view==='emulator'){if(changed)this.arcade.show();else this.arcade.updateView();return;}
   if(view==='tasks'){if(changed||reason==='task')this.tasks();return;}
+  if(view==='web'){this.web.render();return;}
   if(view==='news'){if(changed||reason==='link'||reason==='link-preview')this.links();}
  }
  panel(title,tools,body){this.$('#activity-content').innerHTML=`<section class="activity-panel"><div class="activity-toolbar"><h2>${title}</h2>${tools}</div>${body}</section>`;}

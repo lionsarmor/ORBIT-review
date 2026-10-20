@@ -2,6 +2,8 @@ import {Mesh,b64,bytes,random} from './mesh.js';
 import {createAuthority} from './lounge-authority.js';
 import {LoungeWipe} from './lounge-wipe.js';
 import {previewImage} from './link-preview.js';
+import {roomIcon} from './room-icons.js';
+import {webURL} from './web-room.js';
 import init,{chess_state,chess_play,chess_computer,Chip8} from './pkg/orbit_core.js';
 import {Activities} from './activities.js';
 import {Connectors} from './connectors.js';
@@ -20,8 +22,8 @@ export function closeModal(){$('#modal').close();}
 let returnToWelcome=false;
 function showWelcome(){for(const l of lounges.values())l.activities.arcade.release();if(!$('#welcome').open)$('#welcome').showModal();}
 
-const icons={ambient:'◌',watch:'▷',whiteboard:'✎',chess:'♘',emulator:'▦',tasks:'☑',news:'↗'};
-const defaultRooms=[{id:'lounge',name:'Lounge',mode:'ambient'},{id:'cinema',name:'Watch party',mode:'watch'},{id:'arcade',name:'Playroom',mode:'emulator'},{id:'studio',name:'Studio',mode:'whiteboard'}];
+const icons={ambient:'◌',watch:'▷',whiteboard:'✎',chess:'♘',emulator:'▦',tasks:'☑',news:'▤',web:'◎'};
+const defaultRooms=[{id:'lounge',name:'Lounge',mode:'ambient'},{id:'cinema',name:'Watch party',mode:'watch'},{id:'arcade',name:'Playroom',mode:'emulator'},{id:'studio',name:'Studio',mode:'whiteboard'},{id:'news',name:'News',mode:'news'},{id:'chess',name:'Chess',mode:'chess'},{id:'web',name:'Web',mode:'web'}];
 const identity=new Identity();let storageError='';
 try{await identity.open();}catch(e){storageError=e.message;identity.recoveryRequired=true;identity.value={format:'orbit-id',version:1,id:crypto.randomUUID(),name:'Friend',avatar:'',about:'',settings:{},lounges:[],templates:[]};}
 export const lounges=new Map();const joining=new Set();let selected=null,current=null;
@@ -98,7 +100,7 @@ export function emit(type,data={},room=session.room){
  const event={id:uid(),actor:session.id,n:++session.clock,at:Date.now(),room,type,data};
  if(accept(event,session.id)){mesh.send({type:'event',event});return event;}
 }
-const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host']);
+const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host','web']);
 function accept(event,actor,snapshot=false){
  if(!event||!allowed.has(event.type)||typeof event.id!=='string'||event.id.length>40||typeof event.actor!=='string'||(!snapshot&&event.actor!==actor)||!Number.isSafeInteger(event.n)||event.n<1||event.n>1e9||!event.data||typeof event.data!=='object'||typeof event.room!=='string')return false;
  if(session.events.has(event.id))return false;
@@ -121,7 +123,7 @@ function acceptTimeline(actor,tick){
 }
 function sendTimeline(room,values){const w=session.state.watch?.[room];if(!w||w.actor!==session.id)return;const tick={type:'watch-tick',room,control:w.event,time:values.time,playing:values.playing,stamp:performance.now()};acceptTimeline(session.id,tick);mesh.send(tick);}
 function rebuild(){
- const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},savedRooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),chess:{},rom:{},games:{},watch:{},profiles:{},owner:'',logo:'',background:'',accent:''};
+ const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},web:{},savedRooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),chess:{},rom:{},games:{},watch:{},profiles:{},owner:'',logo:'',background:'',accent:''};
  const ordered=[...session.events.values()].sort((a,b)=>a.n-b.n||a.actor.localeCompare(b.actor)||a.id.localeCompare(b.id));
  for(const e of ordered){
   const d=e.data,r=e.room;
@@ -129,7 +131,7 @@ function rebuild(){
    case 'space':if(!s.owner){s.name=String(d.name||'Tonight').slice(0,40);s.owner=e.actor;}break;
    case 'owner':if(s.owner===d.previous&&(e.actor===d.previous||e.actor===d.next&&!session.members.has(d.previous)))s.owner=d.next;break;
    case 'design':if(e.actor===s.owner){try{const value=design(d);if(value.rooms.length){const old=s.rooms;s.rooms=Object.fromEntries(value.rooms.map(r=>[r.id,{...r}]));s.savedRooms=Object.fromEntries(value.rooms.map(r=>[r.id,{...r}]));}Object.assign(s,{name:value.name,logo:value.logo,background:value.background,accent:value.accent});}catch{}}break;
-   case 'room':if(e.actor===s.owner&&typeof d.name==='string'&&Object.keys(s.rooms).length<40){const room={id:d.id,name:d.name.slice(0,40),mode:'ambient'};s.rooms[d.id]={...room};s.savedRooms[d.id]=room;}break;
+   case 'room':if(e.actor===s.owner&&typeof d.name==='string'&&Object.keys(s.rooms).length<40){const room={id:d.id,name:d.name.slice(0,40),mode:icons[d.mode]?d.mode:'ambient'};s.rooms[d.id]={...room};s.savedRooms[d.id]=room;}break;
    case 'activity':if(s.rooms[r]&&icons[d.mode])s.rooms[r].mode=d.mode;break;
    case 'message':if(typeof d.text==='string'&&d.text.length<=4000)s.messages.push(e);break;
    case 'reaction':if(typeof d.emoji==='string'&&d.emoji.length<10){s.reactions[d.message]??={};s.reactions[d.message][e.actor]=d.emoji;}break;
@@ -146,6 +148,7 @@ function rebuild(){
    case 'link':if(typeof d.id==='string'&&/^[A-Za-z0-9_-]{12,40}$/.test(d.id)&&!['__proto__','constructor','prototype'].includes(d.id)&&safeURL(d.url)&&!Object.hasOwn(s.links,d.id))s.links[d.id]={id:d.id,url:safeURL(d.url),title:String(d.title||'').slice(0,100),room:r,actor:e.actor,thumbnail:''};break;
    case 'link-preview':{const link=s.links[d.id];if(link?.actor===e.actor&&link.room===r&&link.url===d.url){link.thumbnail=previewImage(d.thumbnail);if(!link.title&&typeof d.title==='string')link.title=d.title.slice(0,100);}break;}
    case 'watch':if(!d.url||safeURL(d.url)||d.url.startsWith('local:'))s.watch[r]={...d,actor:e.actor,event:e.id};break;
+   case 'web':if(s.rooms[r]&&(d.url===''||webURL(d.url)))s.web[r]={url:d.url?webURL(d.url):'',actor:e.actor,event:e.id};break;
    case 'profile':s.profiles[e.actor]=d;break;
   }
  }
@@ -191,14 +194,14 @@ function notify(name,text){if(soundEnabled)new Audio('assets/sounds/message.wav'
 function renderStatus(){if(current!==selected)return;$('#stage-status span').textContent=session.active?`${session.members.size} here · ${session.privacy==='relay'?'Relay only':'Peer connections'} · Memory only`:'Ready when you are';}
 export function render(reason){
  if(!session.state.rooms)rebuild();
- activities.arcade.reconcile();activities.cleanupRooms();rememberDesign(current);if(current!==selected){renderHub();return;}
+ activities.arcade.reconcile();activities.web.reconcile();activities.cleanupRooms();rememberDesign(current);if(current!==selected){renderHub();return;}
  const s=session.state,r=s.rooms[session.room]||s.rooms.lounge;
  $('#space-name').textContent=s.name;
- $('#rooms').innerHTML=Object.values(s.rooms).map(r=>`<button class="room ${r.id===session.room&&!session.dm?'active':''}" data-room="${esc(r.id)}"><span class="room-glyph">${esc(r.icon||icons[r.mode])}</span>${esc(r.name)}${unread.get(r.id)?`<b>${unread.get(r.id)}</b>`:''}</button>`).join('');
+ $('#rooms').innerHTML=Object.values(s.rooms).map(r=>`<button class="room ${r.id===session.room&&!session.dm?'active':''}" data-room="${esc(r.id)}"><span class="room-glyph">${roomIcon(r,esc)||esc(icons[r.mode])}</span>${esc(r.name)}${unread.get(r.id)?`<b>${unread.get(r.id)}</b>`:''}</button>`).join('');
  $('#members').innerHTML=[...session.members].map(([id,p])=>`<button class="member" data-member="${esc(id)}"><span class="avatar">${image(p.avatar,70000)?`<img src="${image(p.avatar,70000)}" alt="">`:esc(String(p.name||'?').slice(0,2).toUpperCase())}</span><span class="member-name">${esc(p.name)}${id===session.id?' <small>you · ': '<small>'}${esc(p.status||'Here')}</small></span></button>`).join('');
  $('#member-count').textContent=session.members.size;
  $('#room-title').textContent=session.dm?session.members.get(session.dm)?.name||'Private chat':r.name;
- $('#room-icon').textContent=session.dm?'↗':icons[r.mode];
+ $('#room-icon').innerHTML=session.dm?'↗':roomIcon(r,esc)||esc(icons[r.mode]);
  $('#room-subtitle').textContent=session.dm?'Private · only the two of you':'A little space to be together';
  $('#activity').value=r.mode;
  $('#message').placeholder=`Message ${session.dm?session.members.get(session.dm)?.name:r.name}…`;
@@ -227,7 +230,7 @@ $('#members').onclick=e=>{
  modal(p.name,`<p>${esc(p.about||'Enjoying a little time together.')}</p><p>${esc(p.status||'Here')}</p><button id="dm-open" class="primary wide">Private message ↗</button>`);
  $('#dm-open').onclick=()=>{session.drafts.set(draftKey(),$('#message').value);session.dm=id;$('#message').value=session.drafts.get(id)||'';render();closeModal();closeMobileSidebar();$('#message').focus();};
 };
-$('#add-room').onclick=()=>{modal('A new room',`<form id="room-form"><label>Room name<input id="new-room-name" maxlength="40" required placeholder="Late night radio"></label><button class="primary wide">Create room</button></form>`);$('#room-form').onsubmit=e=>{e.preventDefault();const id=uid();emit('room',{id,name:$('#new-room-name').value.trim()});closeModal();selectRoom(id);};};
+$('#add-room').onclick=()=>{modal('A new room',`<form id="room-form"><label>Room name<input id="new-room-name" maxlength="40" required placeholder="Late night radio"></label><label>Activity<select id="new-room-kind">${Object.keys(icons).map(mode=>`<option value="${mode}">${mode==='web'?'Webpage':mode}</option>`).join('')}</select></label><button class="primary wide">Create room</button></form>`);$('#room-form').onsubmit=e=>{e.preventDefault();const id=uid();emit('room',{id,name:$('#new-room-name').value.trim(),mode:$('#new-room-kind').value});closeModal();selectRoom(id);};};
 $('#activity').onchange=e=>{session.dm=null;activities.backgroundOnly=false;emit('activity',{mode:e.target.value});};
 $('#start-watch').onclick=()=>selected?activities.shareDialog():showWelcome();
 $('#share').onclick=()=>activities.shareDialog();
@@ -314,7 +317,7 @@ $('#queue-add').onclick=()=>addQueue();$('#queue-schedule').onclick=()=>addQueue
 $('#queue-items').onclick=e=>{
  const del=e.target.closest('[data-remove]'),play=e.target.closest('[data-play]');
  if(del)emit('queue-remove',{id:del.dataset.remove});
- if(play){const q=session.state.queue[play.dataset.play];emit('activity',{mode:q.kind});if(q.url&&q.kind==='watch')activities.watch(q.url);else if(q.url)activities.addLink(q.url,q.title);emit('queue-remove',{id:q.id});}
+ if(play){const q=session.state.queue[play.dataset.play];emit('activity',{mode:q.kind});if(q.url&&q.kind==='watch')activities.watch(q.url);else if(q.url&&q.kind==='web')activities.web.open(q.url);else if(q.url)activities.addLink(q.url,q.title);emit('queue-remove',{id:q.id});}
 };
 setInterval(()=>{for(const l of lounges.values())for(const q of Object.values(l.session.state.queue||{}))if(q.when&&q.when<=Date.now()&&!l.due.has(q.id)){l.due.add(q.id);toast(`${l.session.state.name}: time for ${q.title}.`);}},10000);
 
