@@ -14,6 +14,8 @@ let toastTimer;
 export function toast(s){$('#toast').textContent=s;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
 export function modal(title,html){for(const l of lounges.values())l.activities.arcade.release();$('#modal-title').textContent=title;$('#modal-body').innerHTML=html;if(!$('#modal').open)$('#modal').showModal();}
 export function closeModal(){$('#modal').close();}
+let returnToWelcome=false;
+function showWelcome(){for(const l of lounges.values())l.activities.arcade.release();if(!$('#welcome').open)$('#welcome').showModal();}
 
 const icons={ambient:'◌',watch:'▷',whiteboard:'✎',chess:'♘',emulator:'▦',tasks:'☑',news:'↗'};
 const defaultRooms=[{id:'lounge',name:'Lounge',mode:'ambient'},{id:'cinema',name:'Watch party',mode:'watch'},{id:'arcade',name:'Playroom',mode:'emulator'},{id:'studio',name:'Studio',mode:'whiteboard'}];
@@ -31,7 +33,7 @@ function context(){
 function bind(l){current=l;mesh=l.mesh;session=l.session;activities=l.activities;unread=l.unread;awayReplies=l.awayReplies;due=l.due;}
 function within(l,work){const old=current;bind(l);try{return work();}finally{bind(old);}}
 const homeContext=context();bind(homeContext);
-function saveIdentity(){if(!identity.db||identity.recoveryRequired)return toast(storageError||'Storage unavailable. Import/export your ID before closing.');identity.save().catch(e=>toast(e.message));}
+function saveIdentity(){if(!identity.db||identity.recoveryRequired){toast(storageError||'Storage unavailable. Import/export your ID before closing.');return Promise.resolve(false);}return identity.save().then(()=>true).catch(e=>{toast(e.message);return false;});}
 const stored=k=>{try{return localStorage.getItem(k);}catch{return null;}};
 function preference(k,v){try{localStorage.setItem(k,v);}catch{}identity.value.settings[k]=String(v);saveIdentity();}
 function skin(name){
@@ -68,9 +70,9 @@ export async function enter(create,input=$('#join-code').value,template=null){
 }
 export function activate(l){
  if(selected){selected.session.drafts.set(selected.session.dm||selected.session.room,$('#message').value);selected.activities.deactivate();}
- selected=l;bind(l||homeContext);document.body.classList.toggle('home-view',!l);$('#welcome').hidden=!!l;$('#workspace').classList.toggle('at-home',!l);$('#invite').disabled=$('#leave').disabled=!l;
- document.body.classList.remove('menu-open');if(l){if(!session.dm)l.unread.delete(session.room);l.activities.active=true;l.activities.mode='';$('#message').value=session.drafts.get(draftKey())||'';render();}else{homeContext.activities.active=false;$('#activity-content').replaceChildren();$('#messages').replaceChildren();$('#rooms').replaceChildren();$('#members').replaceChildren();$('#space-name').textContent='Your lounges';$('#room-title').textContent='Saved lounges';$('#room-subtitle').textContent='On this device';$('#member-count').textContent='0';}
- renderHub();applyLoungeDesign();
+ selected=l;bind(l||homeContext);document.body.classList.toggle('home-view',!l);if(l)$('#welcome').close();$('#workspace').classList.toggle('at-home',!l);$('#invite').disabled=$('#leave').disabled=!l;
+ document.body.classList.remove('menu-open');if(l){if(!session.dm)l.unread.delete(session.room);l.activities.active=true;l.activities.mode='';$('#message').value=session.drafts.get(draftKey())||'';render();}else{homeContext.activities.active=false;$('#activity-content').replaceChildren();$('#messages').replaceChildren();$('#rooms').replaceChildren();$('#members').replaceChildren();$('#space-name').textContent='ORBIT';$('#room-title').textContent='Your little universe';$('#room-subtitle').textContent='Choose a lounge above';$('#ambient').style.display='';$('#member-count').textContent='0';}
+ $('#start-watch').textContent=l?'Find something to watch ↗':'Create or join a lounge ↗';renderHub();applyLoungeDesign();
 }
 // Deterministically ordered operations converge after concurrent edits and late joins.
 // The log is capped in memory; no room data is put in localStorage/IndexedDB.
@@ -209,7 +211,7 @@ $('#members').onclick=e=>{
 };
 $('#add-room').onclick=()=>{modal('A new room',`<form id="room-form"><label>Room name<input id="new-room-name" maxlength="40" required placeholder="Late night radio"></label><button class="primary wide">Create room</button></form>`);$('#room-form').onsubmit=e=>{e.preventDefault();const id=uid();emit('room',{id,name:$('#new-room-name').value.trim()});closeModal();selectRoom(id);};};
 $('#activity').onchange=e=>{session.dm=null;activities.backgroundOnly=false;emit('activity',{mode:e.target.value});};
-$('#start-watch').onclick=()=>activities.shareDialog();
+$('#start-watch').onclick=()=>selected?activities.shareDialog():showWelcome();
 $('#share').onclick=()=>activities.shareDialog();
 $('#invite').onclick=()=>{
  const link=new URL(`#${mesh.code}`,appBase).href;
@@ -223,7 +225,7 @@ export function leaveLounge(l=selected){
  l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.watchTicks.clear();l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
  if(selected===l)activate(null);renderHub();
 }
-function leave(){leaveLounge();}
+function leave(){leaveLounge();if(!selected)showWelcome();}
 window.addEventListener('pagehide',()=>{for(const l of lounges.values())l.mesh.leave();connectors.disconnectAll();});
 function sendDM(to,text){const m={type:'dm',id:uid(),text,from:session.id,to,at:Date.now()};session.private.push(m);mesh.send(m,to);renderMessages();}
 $('#composer').onsubmit=e=>{
@@ -292,7 +294,7 @@ $('#settings').onclick=settings;
 function settings(){
  modal('Make it yours',`<div class="skin-options">${['orbit','buddy','roddy'].map(s=>`<button class="skin-tile ${document.documentElement.dataset.skin===s?'selected':''}" data-skin="${s}"><img src="assets/${{orbit:'orbit.svg',buddy:'buddy.png',roddy:'roddy-full.svg'}[s]}" alt=""><strong>${s.toUpperCase()}</strong></button>`).join('')}</div>
  <div class="settings-section"><h3>Chat background</h3><div class="background-options"><button data-background-choice="default">Default ORBIT scene</button><button data-background-choice="plain">Plain background</button><button id="background-image">Your image…</button><button id="background-remove">Remove saved image</button></div><input id="background-file" type="file" accept="image/jpeg,image/png,image/webp" hidden><p>Only on this device. Choosing an image saves a resized copy as a local preference. Use “Chat background” at the top to return to the scene while a game keeps running.</p></div>
-<button id="settings-id" class="wide">Your local ID · import / export / avatar ↗</button>
+<button id="settings-id" class="wide">Your local ID · import / export / avatar ↗</button><button id="settings-lounges" class="wide">Saved lounges &amp; designs ↗</button>
  <div class="settings-section"><h3>Your presence</h3><form id="profile-form"><div class="form-row"><label>Name<input id="profile-name" maxlength="24" value="${esc(identity.value.name)}"></label><label>Status<select id="profile-status"><option>Here</option><option>Away</option><option>Busy</option></select></label></div><label>About you<input id="profile-about" maxlength="160" value="${esc(identity.value.about)}"></label><label>Away reply<input id="profile-away" maxlength="160" value="${esc(session.profile.away||'')}"></label><button>Update presence</button></form></div>
  <div class="settings-section"><h3>This device</h3><label>Chat opacity when idle<input id="opacity" type="range" min="0" max="70" value="${stored('orbit.opacity')||25}"></label><label class="toggle-row">Desktop notifications<input id="notifications" type="checkbox" ${session.notifications?'checked':''}></label><label class="toggle-row">Original BUDDY message sound<input id="sounds" type="checkbox" ${soundEnabled?'checked':''}></label><label class="toggle-row">24-hour clock<input id="clock24" type="checkbox" ${clock24?'checked':''}></label><button id="controllers" class="wide">Gamepads & controls ↗</button></div>
  <div class="settings-section"><h3>Connection privacy</h3><label>For the next space<select id="privacy"><option value="direct">Direct first · encrypted relay fallback</option><option value="relay">Hide my IP · relay only</option></select></label><p>Direct peers can see each other’s IP address. Relay only requires your own configured TURN service and never falls back to direct.</p><div class="notice">Early development build: encrypted peer transport and encrypted messages, with an unaudited invite-key handshake. Do not use for sensitive conversations yet.</div></div>
@@ -300,8 +302,8 @@ function settings(){
  background(stored('orbit.background')||'default');
  document.querySelectorAll('[data-background-choice]').forEach(b=>b.onclick=()=>background(b.dataset.backgroundChoice));
  $('#background-image').onclick=()=>$('#background-file').click();$('#background-file').onchange=e=>chooseBackground(e.target.files[0]);
- $('#background-remove').onclick=()=>{customBackground='';delete identity.value.settings['orbit.background.image'];try{localStorage.removeItem('orbit.background.image');}catch{}background('default');toast('Saved background image removed.');};
- $('#settings-id').onclick=identityDialog;
+ $('#background-remove').onclick=async()=>{delete identity.value.settings['orbit.background.image'];identity.value.settings['orbit.background']='default';await saveIdentity();customBackground='';try{localStorage.removeItem('orbit.background.image');}catch{}background('default');toast('Saved background image removed.');};
+ $('#settings-id').onclick=identityDialog;$('#settings-lounges').onclick=()=>{closeModal();$('#lounge-library').showModal();};
  $('#profile-status').value=session.profile.status||'Here';
  $('#profile-form').onsubmit=e=>{e.preventDefault();session.profile={name:$('#profile-name').value.trim()||session.name,status:$('#profile-status').value,about:$('#profile-about').value,away:$('#profile-away').value};identity.value.name=session.profile.name;identity.value.about=session.profile.about;$('#entry-name').value=session.profile.name;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,about:identity.value.about,avatar:identity.value.avatar};session.members.set(session.id,session.profile);awayReplies.clear();emit('profile',session.profile);});renderHub();toast('Profile saved on this device.');};
  $('#opacity').oninput=e=>{document.documentElement.style.setProperty('--idle-opacity',e.target.value/100);preference('orbit.opacity',e.target.value);};
@@ -327,12 +329,12 @@ function applyLoungeDesign(){
 }
 function loungeTile(entry,home=false){
  const l=lounges.get(entry.id),name=entry.alias||entry.name,status=joining.has(entry.id)?'connecting':l?.status||entry.state||'saved',sharing=l?.activities.streams?' · sharing':l?.activities.microphone?' · mic':'',count=l?[...l.unread.values()].reduce((a,b)=>a+b,0):0;
- return `<button class="lounge-tile ${selected===l&&l?'selected':''} ${home?'home-tile':''}" data-lounge="${esc(entry.id)}" title="${esc(name)} · ${esc(status)}"><span class="lounge-logo">${entry.logo?`<img src="${entry.logo}" alt="">`:esc(name.slice(0,2).toUpperCase())}</span><span><strong>${esc(name)}</strong><small>${esc(status)}${sharing}${count?` · ${count} unread`:''}</small></span></button>`;
+ return `<button class="lounge-tile ${selected===l&&l?'selected':''} ${home?'home-tile':''}" data-lounge="${esc(entry.id)}" aria-label="${esc(name)} · ${esc(status)}${sharing}${count?` · ${count} unread`:''}" aria-pressed="${!!l&&selected===l}" title="${esc(name)} · ${esc(status)}${sharing}"><span class="lounge-logo">${entry.logo?`<img src="${entry.logo}" alt="">`:esc(name.slice(0,2).toUpperCase())}</span>${count?`<b class="lounge-unread" aria-hidden="true">${count>99?'99+':count}</b>`:''}<span class="lounge-caption"><strong>${esc(name)}</strong><small>${esc(status)}${sharing}${count?` · ${count} unread`:''}</small></span></button>`;
 }
 function renderHub(){
  if(!$('#lounge-carousel'))return;const entries=identity.value.lounges;
  $('#lounge-carousel').innerHTML=entries.map(e=>loungeTile(e)).join('');$('#saved-lounges').innerHTML=entries.length?entries.map(e=>`<div class="saved-entry">${loungeTile(e,true)}<button data-saved-options="${esc(e.id)}" aria-label="Options for ${esc(e.alias||e.name)}">⋯</button></div>`).join(''):'<p class="notice">Your invitations will appear here. Join one whenever you like.</p>';
- $('#home-greeting').textContent=`Welcome home, ${identity.value.name}.`;
+ $('#entry-design').hidden=!identity.value.templates.length;
  const choice=$('#home-template').value;$('#home-template').innerHTML='<option value="">Fresh lounge</option>'+identity.value.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('');$('#home-template').value=choice;
  $('#template-list').innerHTML=identity.value.templates.length?identity.value.templates.map((t,i)=>`<div class="template-row"><span>${esc(t.name)} · ${t.rooms.length} rooms</span><button data-template-create="${i}">Create from design</button><button data-template-remove="${i}" aria-label="Remove design">×</button></div>`).join(''):'<p>No saved designs yet. Design a lounge, then save its layout.</p>';
  $('#lounge-design').disabled=!selected;$('#lounge-options').disabled=!selected;
@@ -346,19 +348,27 @@ function savedOptions(id){
  $('#saved-forget').onclick=()=>{if(l)leaveLounge(l);identity.value.lounges=identity.value.lounges.filter(e=>e!==entry);saveIdentity();closeModal();renderHub();};
  $('#saved-left').onclick=()=>{const i=identity.value.lounges.indexOf(entry);if(i>0){identity.value.lounges.splice(i,1);identity.value.lounges.splice(i-1,0,entry);saveIdentity();renderHub();}};
 }
-$('#home-button').onclick=()=>activate(null);$('#new-lounge').onclick=()=>{activate(null);$('#create-space').focus();};
+$('#new-lounge').onclick=showWelcome;$('#welcome-close').onclick=()=>$('#welcome').close();$('#library-close').onclick=()=>$('#lounge-library').close();
+$('#modal').addEventListener('close',()=>{if(returnToWelcome){returnToWelcome=false;showWelcome();}});
+$('#welcome-import').onclick=()=>{$('#welcome').close();returnToWelcome=true;importIdentityDialog();};
 $('#lounge-join').onsubmit=e=>{e.preventDefault();enter(false,$('#lounge-code').value);};
-for(const id of ['lounge-carousel','saved-lounges'])$('#'+id).onclick=e=>{const options=e.target.closest('[data-saved-options]');if(options)return savedOptions(options.dataset.savedOptions);const tile=e.target.closest('[data-lounge]');if(!tile)return;const entry=identity.value.lounges.find(l=>l.id===tile.dataset.lounge);const live=lounges.get(entry.id);live?activate(live):enter(false,entry.code);};
-$('#template-list').onclick=e=>{const create=e.target.closest('[data-template-create]'),remove=e.target.closest('[data-template-remove]');if(create)enter(true,'',identity.value.templates[Number(create.dataset.templateCreate)]);if(remove){identity.value.templates.splice(Number(remove.dataset.templateRemove),1);saveIdentity();renderHub();}};
+$('#lounge-code').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.target.blur();}});
+for(const id of ['lounge-carousel','saved-lounges'])$('#'+id).onclick=e=>{const options=e.target.closest('[data-saved-options]');if(options)return savedOptions(options.dataset.savedOptions);const tile=e.target.closest('[data-lounge]');if(!tile)return;const entry=identity.value.lounges.find(l=>l.id===tile.dataset.lounge);const live=lounges.get(entry.id);$('#lounge-library').close();live?activate(live):enter(false,entry.code);};
+$('#template-list').onclick=e=>{const create=e.target.closest('[data-template-create]'),remove=e.target.closest('[data-template-remove]');if(create){$('#lounge-library').close();enter(true,'',identity.value.templates[Number(create.dataset.templateCreate)]);}if(remove){identity.value.templates.splice(Number(remove.dataset.templateRemove),1);saveIdentity();renderHub();}};
 $('#lounge-options').onclick=()=>selected&&savedOptions(selected.key);
-$('#identity-card').onclick=identityDialog;
 function download(text,name){const u=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 function identityDialog(){
  modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations, but never chat, ROMs or live session keys.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Encrypted backups stay in your files. Importing is not an upload to the helper.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
  $('#id-avatar').onclick=()=>$('#id-avatar-file').click();$('#id-avatar-file').onchange=async e=>{try{const value=await readImage(e.target.files[0],128);identity.value.avatar=value;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile.avatar=value;emit('profile',session.profile);});identityDialog();}catch(error){toast(error.message);}};
  $('#id-export').onclick=async()=>{try{for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))identity.value.settings[key]=localStorage.getItem(key);download(await identity.export($('#id-passphrase').value),'ORBIT.orbit-id');$('#id-status').textContent='Encrypted ID exported. Keep its passphrase separately.';}catch(e){$('#id-status').textContent=e.message;}};
- $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};
+ wireIdentityImport();
  $('#id-delete').onclick=()=>{modal('Delete local ID?',`<p>This leaves all live lounges and removes this device’s ID, invitations, designs and ORBIT preferences. Exported backup files are separate.</p><button id="id-delete-confirm" class="danger wide">Delete ID and leave all lounges</button>`);$('#id-delete-confirm').onclick=async()=>{for(const l of [...lounges.values()])leaveLounge(l);await identity.forget();for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);location.reload();};};
+}
+function importIdentityDialog(){
+ modal('Import your ID card',`<p>Bring your name, avatar and saved lounges with you.</p><label>Card passphrase<input id="id-passphrase" type="password" autocomplete="current-password" placeholder="The passphrase used when exporting"></label><button id="id-import" class="primary wide">Choose ID card…</button><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Your card is opened on this device.</p>`);wireIdentityImport();
+}
+function wireIdentityImport(){
+ $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();returnToWelcome=false;closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};
 }
 $('#lounge-design').onclick=designer;
 function designer(){
@@ -374,5 +384,6 @@ function designer(){
  };show();
 }
 rebuild();activate(null);wakeChat();$('#identity-warning').hidden=!storageError;$('#identity-warning').textContent=storageError;$('#create-space').disabled=$('#join-space').disabled=$('#entry-name').disabled=$('#join-code').disabled=false;
+if(!identity.hasStoredCard||initialInvite||storageError)showWelcome();
 if(initialInvite){$('#lounge-code').value=initialInvite;toast('Invite ready. Use Join to enter this lounge.');}
 for(const saved of identity.value.lounges.filter(l=>l.auto).slice(0,4))enter(false,saved.code);

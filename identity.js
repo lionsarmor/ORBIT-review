@@ -26,7 +26,7 @@ export class Identity extends EventTarget{
  async open(){
   this.db=await new Promise((resolve,reject)=>{const r=indexedDB.open('orbit-identity',1);r.onupgradeneeded=()=>r.result.createObjectStore('local');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('Device storage is unavailable. Your ID will not be saved.'));});
   const get=key=>new Promise((resolve,reject)=>{const r=this.db.transaction('local').objectStore('local').get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-  this.key=await get('key');const sealed=await get('card');
+  this.key=await get('key');const sealed=await get('card');this.hasStoredCard=!!sealed;
   if(sealed&&!this.key)throw Error('The saved ID key is missing. Import your backup to recover.');
   if(!this.key)this.key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   if(sealed){try{this.value=validate(JSON.parse(decode.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:sealed.iv},this.key,sealed.data))));}catch{throw Error('Your saved ID could not be read. Exported backups can be imported; the unreadable copy has not been replaced.');}}
