@@ -15,6 +15,7 @@ export class PeerBrowser{
  constructor({frame,location:locationChanged,notice,ended}){this.onframe=frame;this.onlocation=locationChanged;this.notice=notice;this.onended=ended;this.canvas=document.createElement('canvas');this.canvas.width=1280;this.canvas.height=800;this.canvas.className='web-host-canvas';this.context=this.canvas.getContext('2d',{alpha:false});this.context.fillStyle='#19140f';this.context.fillRect(0,0,1280,800);this.stream=this.canvas.captureStream(8);this.stream.getVideoTracks()[0].contentHint='detail';this.closed=false;this.refresh=setInterval(()=>{if(!this.closed){this.context.drawImage(this.canvas,0,0);this.stream.getVideoTracks()[0]?.requestFrame?.();}},125);}
  async start(url){
   if(!access)throw Error('Enable hosting on this computer first.');
+  for(const name of ['loopback-network','local-network-access']){let permission;try{permission=await navigator.permissions?.query({name});}catch{continue;}if(permission?.state==='denied')throw Error('Allow Local network / Loopback access for ORBIT in your browser’s site settings, then try hosting again.');if(permission)break;}
   await new Promise((resolve,reject)=>{
    const ws=this.socket=new WebSocket('ws://127.0.0.1:8770/browser');let started=false;
    const timeout=setTimeout(()=>{reject(Error('The peer browser did not start. Check the desktop companion.'));this.close();},35000);
@@ -27,7 +28,7 @@ export class PeerBrowser{
     if(m.type==='notice')this.notice?.(m.message);
     if(m.type==='ended'){this.close();this.onended?.();}
    };
-   ws.onerror=()=>{if(!started){clearTimeout(timeout);reject(Error('Start the ORBIT desktop companion to host a shared browser.'));}this.close();};
+   ws.onerror=()=>{if(!started){clearTimeout(timeout);reject(Error('Start the ORBIT desktop companion and allow Local network / Loopback access for this ORBIT site, then try again.'));}this.close();};
    ws.onclose=()=>{clearTimeout(timeout);if(!started)reject(Error('Hosting permission expired. Enable hosting on this computer again.'));const unexpected=!this.closed;this.close();if(unexpected)this.onended?.();};
   });return this;
  }
