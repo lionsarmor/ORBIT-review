@@ -71,7 +71,7 @@ export async function enter(create,input=$('#join-code').value,template=null){
 export function activate(l){
  if(selected){selected.session.drafts.set(selected.session.dm||selected.session.room,$('#message').value);selected.activities.deactivate();}
  selected=l;bind(l||homeContext);document.body.classList.toggle('home-view',!l);if(l)$('#welcome').close();$('#workspace').classList.toggle('at-home',!l);$('#invite').disabled=$('#leave').disabled=!l;
- document.body.classList.remove('menu-open');if(l){if(!session.dm)l.unread.delete(session.room);l.activities.active=true;l.activities.mode='';$('#message').value=session.drafts.get(draftKey())||'';render();}else{homeContext.activities.active=false;$('#activity-content').replaceChildren();$('#messages').replaceChildren();$('#rooms').replaceChildren();$('#members').replaceChildren();$('#space-name').textContent='ORBIT';$('#room-title').textContent='Your little universe';$('#room-subtitle').textContent='Choose a lounge above';$('#ambient').style.display='';$('#member-count').textContent='0';}
+ closeMobileSidebar();if(l){if(!session.dm)l.unread.delete(session.room);l.activities.active=true;l.activities.mode='';$('#message').value=session.drafts.get(draftKey())||'';render();}else{homeContext.activities.active=false;$('#activity-content').replaceChildren();$('#messages').replaceChildren();$('#rooms').replaceChildren();$('#members').replaceChildren();$('#space-name').textContent='ORBIT';$('#room-title').textContent='Your little universe';$('#room-subtitle').textContent='Choose a lounge above';$('#ambient').style.display='';$('#member-count').textContent='0';}
  $('#start-watch').textContent=l?'Find something to watch ↗':'Create or join a lounge ↗';renderHub();applyLoungeDesign();
 }
 // Deterministically ordered operations converge after concurrent edits and late joins.
@@ -200,14 +200,14 @@ function renderMessages(){
 }
 function linkify(t){return String(t).split(/(https?:\/\/[^\s<>]+)/g).map(part=>/^https?:\/\//.test(part)?`<a href="${esc(part)}" target="_blank" rel="noopener noreferrer">${esc(part.length>60?part.slice(0,57)+'…':part)}</a>`:facesIn(esc(part))).join('');}
 function draftKey(){return session.dm||session.room;}
-function selectRoom(id){session.drafts.set(draftKey(),$('#message').value);session.dm=null;session.room=id;unread.delete(id);$('#message').value=session.drafts.get(id)||'';activities.resetView();render();document.body.classList.remove('menu-open');}
+function selectRoom(id){session.drafts.set(draftKey(),$('#message').value);session.dm=null;session.room=id;unread.delete(id);$('#message').value=session.drafts.get(id)||'';activities.resetView();render();closeMobileSidebar();}
 $('#rooms').onclick=e=>{const b=e.target.closest('[data-room]');if(b)selectRoom(b.dataset.room);};
 $('#members').onclick=e=>{
  const b=e.target.closest('[data-member]');if(!b)return;
  const id=b.dataset.member,p=session.members.get(id);
  if(id===session.id)return settings();
  modal(p.name,`<p>${esc(p.about||'Enjoying a little time together.')}</p><p>${esc(p.status||'Here')}</p><button id="dm-open" class="primary wide">Private message ↗</button>`);
- $('#dm-open').onclick=()=>{session.drafts.set(draftKey(),$('#message').value);session.dm=id;$('#message').value=session.drafts.get(id)||'';render();closeModal();document.body.classList.remove('menu-open');$('#message').focus();};
+ $('#dm-open').onclick=()=>{session.drafts.set(draftKey(),$('#message').value);session.dm=id;$('#message').value=session.drafts.get(id)||'';render();closeModal();closeMobileSidebar();$('#message').focus();};
 };
 $('#add-room').onclick=()=>{modal('A new room',`<form id="room-form"><label>Room name<input id="new-room-name" maxlength="40" required placeholder="Late night radio"></label><button class="primary wide">Create room</button></form>`);$('#room-form').onsubmit=e=>{e.preventDefault();const id=uid();emit('room',{id,name:$('#new-room-name').value.trim()});closeModal();selectRoom(id);};};
 $('#activity').onchange=e=>{session.dm=null;activities.backgroundOnly=false;emit('activity',{mode:e.target.value});};
@@ -250,11 +250,24 @@ $('#image-file').onchange=async e=>{
 function wakeChat(){$('#chat-overlay').classList.remove('idle');clearTimeout(idleTimer);idleTimer=setTimeout(()=>$('#chat-overlay').classList.add('idle'),7000);}
 $('#chat-overlay').onpointermove=wakeChat;$('#message').oninput=wakeChat;
 $('#chat-mode').onchange=e=>{$('#chat-overlay').className=e.target.value;wakeChat();};
-function toggleQueue(show){$('#queue').classList.toggle('closed',!show);$('#queue-toggle').setAttribute('aria-expanded',String(show));}
+function syncPanelButtons(){
+ const left=matchMedia('(max-width:650px)').matches?document.body.classList.contains('menu-open'):!document.body.classList.contains('sidebar-hidden');
+ for(const [id,show,label]of [['left',left,'rooms and members'],['top',!$('#top-nav').hidden,'top navigation'],['right',!!selected&&!$('#queue').classList.contains('closed'),'Up next']]){
+  const button=$('#panel-'+id),text=`${show?'Hide':'Show'} ${label}`;button.setAttribute('aria-expanded',String(show));button.setAttribute('aria-label',text);button.title=text;
+ }
+ $('#panel-right').disabled=!selected;$('#mobile-menu').setAttribute('aria-expanded',String(left));
+}
+function closeMobileSidebar(){document.body.classList.remove('menu-open');syncPanelButtons();}
+function toggleSidebar(){if(matchMedia('(max-width:650px)').matches)document.body.classList.toggle('menu-open');else document.body.classList.toggle('sidebar-hidden');syncPanelButtons();}
+function toggleQueue(show){$('#queue').classList.toggle('closed',!show);$('#queue-toggle').setAttribute('aria-expanded',String(show));syncPanelButtons();}
+$('#panel-left').onclick=toggleSidebar;
+$('#panel-top').onclick=()=>{$('#top-nav').hidden=!$('#top-nav').hidden;syncPanelButtons();};
+$('#panel-right').onclick=()=>toggleQueue($('#queue').classList.contains('closed'));
+window.addEventListener('resize',syncPanelButtons);
 $('#queue-toggle').onclick=()=>toggleQueue($('#queue').classList.contains('closed'));$('#queue-close').onclick=()=>toggleQueue(false);
 if(innerWidth<850)toggleQueue(false);
-$('#mobile-menu').onclick=()=>document.body.classList.toggle('menu-open');
-$('#stage').addEventListener('pointerdown',()=>document.body.classList.remove('menu-open'));
+$('#mobile-menu').onclick=toggleSidebar;
+$('#stage').addEventListener('pointerdown',()=>closeMobileSidebar());
 let splitStart;
 $('#splitter').onpointerdown=e=>{splitStart={y:e.clientY,h:$('#room-section').offsetHeight};e.currentTarget.setPointerCapture(e.pointerId);};
 $('#splitter').onpointermove=e=>{if(splitStart)$('#room-section').style.height=`${Math.min(380,Math.max(85,splitStart.h+e.clientY-splitStart.y))}px`;};
@@ -316,7 +329,7 @@ function settings(){
 }
 document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);
 soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';
-window.addEventListener('keydown',e=>{if(e.key==='F7'){e.preventDefault();settings();}if(e.key==='Escape'&&!$('#modal').open)document.body.classList.remove('menu-open');});
+window.addEventListener('keydown',e=>{if(e.key==='F7'){e.preventDefault();settings();}if(e.key==='Escape'&&!$('#modal').open)closeMobileSidebar();});
 
 function rememberDesign(l){
  if(!l?.saved||!l.session.state.name)return;const state=l.session.state,entry=l.saved;
@@ -337,7 +350,7 @@ function renderHub(){
  $('#entry-design').hidden=!identity.value.templates.length;
  const choice=$('#home-template').value;$('#home-template').innerHTML='<option value="">Fresh lounge</option>'+identity.value.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('');$('#home-template').value=choice;
  $('#template-list').innerHTML=identity.value.templates.length?identity.value.templates.map((t,i)=>`<div class="template-row"><span>${esc(t.name)} · ${t.rooms.length} rooms</span><button data-template-create="${i}">Create from design</button><button data-template-remove="${i}" aria-label="Remove design">×</button></div>`).join(''):'<p>No saved designs yet. Design a lounge, then save its layout.</p>';
- $('#lounge-design').disabled=!selected;$('#lounge-options').disabled=!selected;
+ $('#lounge-design').disabled=!selected;$('#lounge-options').disabled=!selected;syncPanelButtons();
 }
 function savedOptions(id){
  const entry=identity.value.lounges.find(e=>e.id===id);if(!entry)return;const l=lounges.get(id);
@@ -374,7 +387,8 @@ $('#lounge-design').onclick=designer;
 function designer(){
  if(!selected)return;const l=selected;if(l.session.state.owner!==l.session.id)return toast('The current lounge coordinator manages its design.');
  let draft=design({...l.session.state,rooms:Object.values(l.session.state.rooms)});
- const show=()=>{modal('Design your lounge',`<form id="designer-form"><div class="designer-preview">${draft.logo?`<img src="${draft.logo}" alt="Lounge icon preview">`:'✦'}<strong>${esc(draft.name)}</strong>${draft.background?'<small>Background selected</small>':''}</div><label>Lounge name<input id="design-name" maxlength="40" value="${esc(draft.name)}" required></label><div class="button-group"><button id="design-logo" type="button">Choose icon</button><button id="design-background" type="button">Choose background</button><button id="design-clear-background" type="button">Clear background</button></div><input id="design-file" type="file" accept="image/jpeg,image/png,image/webp" hidden><label>Accent<input id="design-accent" type="color" value="${draft.accent}"></label><h3>Rooms</h3><div id="designer-rooms">${draft.rooms.map((r,i)=>`<div class="designer-room"><input data-room-icon="${i}" aria-label="Room icon" maxlength="8" value="${esc(r.icon)}" placeholder="◌"><input data-room-name="${i}" aria-label="Room name" maxlength="40" value="${esc(r.name)}"><select data-room-mode="${i}" aria-label="Room activity">${Object.keys(icons).map(mode=>`<option value="${mode}" ${r.mode===mode?'selected':''}>${mode}</option>`).join('')}</select><button type="button" data-room-up="${i}" aria-label="Move room up">↑</button><button type="button" data-room-delete="${i}" aria-label="Delete room">×</button></div>`).join('')}</div><button type="button" id="design-add-room">＋ Room</button><div class="button-group"><button class="primary">Apply to lounge</button><button type="button" id="design-save-template">Save as local design</button></div><p id="design-status" role="status">Designs contain appearance and room definitions, never conversations.</p></form>`);
+ const show=()=>{modal('Design your lounge',`<form id="designer-form"><div class="designer-preview">${draft.logo?`<img src="${draft.logo}" alt="Lounge icon preview">`:'✦'}<strong>${esc(draft.name)}</strong>${draft.background?'<small>Background selected</small>':''}</div><label>Lounge name<input id="design-name" maxlength="40" value="${esc(draft.name)}" required></label><div class="button-group"><button id="design-logo" type="button" class="design-asset" data-selected="${!!draft.logo}"><span aria-hidden="true">◈</span> ${draft.logo?'Change icon':'Choose icon'}</button><button id="design-background" type="button" class="design-asset" data-selected="${!!draft.background}"><span aria-hidden="true">▧</span> ${draft.background?'Change background':'Choose background'}</button><button id="design-clear-background" type="button" class="design-quiet" ${draft.background?'':'disabled'}>Clear background</button></div><input id="design-file" type="file" accept="image/jpeg,image/png,image/webp" hidden><label class="design-accent-control">Accent colour<span class="design-colour-well"><input id="design-accent" type="color" value="${draft.accent}"><output id="design-colour-value" for="design-accent">${draft.accent.toUpperCase()}</output><span aria-hidden="true">⌄</span></span></label><h3>Rooms</h3><div id="designer-rooms">${draft.rooms.map((r,i)=>`<div class="designer-room"><input data-room-icon="${i}" aria-label="Room icon" maxlength="8" value="${esc(r.icon)}" placeholder="◌"><input data-room-name="${i}" aria-label="Room name" maxlength="40" value="${esc(r.name)}"><select data-room-mode="${i}" aria-label="Room activity">${Object.keys(icons).map(mode=>`<option value="${mode}" ${r.mode===mode?'selected':''}>${mode}</option>`).join('')}</select><button type="button" data-room-up="${i}" aria-label="Move room up" title="Move room up" ${i===0?'disabled':''}>↑</button><button type="button" data-room-delete="${i}" aria-label="Delete room" title="Delete room" ${draft.rooms.length===1?'disabled':''}>×</button></div>`).join('')}</div><button type="button" id="design-add-room" ${draft.rooms.length>=40?'disabled':''}>＋ Add room</button><div class="button-group design-actions"><button class="primary">Apply to lounge <span aria-hidden="true">↗</span></button><button type="button" id="design-save-template">Save as local design</button></div><p id="design-status" role="status">Designs contain appearance and room definitions, never conversations.</p></form>`);
+ $('#design-accent').oninput=e=>$('#design-colour-value').textContent=e.target.value.toUpperCase();
  const collect=()=>{draft.name=$('#design-name').value;draft.accent=$('#design-accent').value;document.querySelectorAll('[data-room-name]').forEach(input=>draft.rooms[Number(input.dataset.roomName)].name=input.value);document.querySelectorAll('[data-room-icon]').forEach(input=>draft.rooms[Number(input.dataset.roomIcon)].icon=input.value);document.querySelectorAll('[data-room-mode]').forEach(input=>draft.rooms[Number(input.dataset.roomMode)].mode=input.value);};
  $('#designer-form').onsubmit=e=>{e.preventDefault();collect();if(!draft.rooms.length)return toast('Keep at least one room.');if(JSON.stringify(draft).length>350000)return toast('Choose smaller lounge images.');within(l,()=>emit('design',design(draft)));closeModal();};
  $('#design-save-template').onclick=()=>{collect();if(identity.value.templates.length>=12)return toast('Up to twelve designs fit in an ID.');identity.value.templates.push(design(draft));saveIdentity();renderHub();toast('Lounge design saved locally.');};

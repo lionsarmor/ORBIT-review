@@ -14,18 +14,22 @@
   <button id="lounge-design" class="subtle wide">✦ Design lounge</button><button id="lounge-options" class="subtle wide">Lounge options ⋯</button><div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button><button id="leave" class="danger" disabled>Leave ↗</button></div>
  </aside>
  <main>
-  <div id="lounge-bar"><nav id="lounge-carousel" aria-label="Saved lounges"></nav><form id="lounge-join"><input id="lounge-code" aria-label="Enter lounge code" placeholder="Paste a lounge code or invitation link…" autocomplete="off" required><button>Join</button></form><button id="new-lounge" title="Create or join a lounge" aria-label="Create or join a lounge">＋</button></div>
-  <header>
+  <header id="top-nav">
    <button id="mobile-menu" class="icon" aria-label="Open rooms and members">☰</button>
    <div class="room-heading"><span id="room-icon">◌</span><div><strong id="room-title">Lounge</strong><small id="room-subtitle">A little space to be together</small></div></div>
    <select id="activity" aria-label="Background activity"><option value="ambient">Chat background</option><option value="watch">Watch</option><option value="whiteboard">Whiteboard</option><option value="chess">Chess</option><option value="emulator">Playroom</option><option value="tasks">Tasks</option><option value="news">Links</option></select>
    <button id="share" title="Share video, local media or screen">↥ <span>Share</span></button>
-   <div class="header-spacer"></div>
+   <div id="lounge-bar"><nav id="lounge-carousel" aria-label="Saved lounges"></nav><form id="lounge-join"><input id="lounge-code" aria-label="Enter lounge code" placeholder="Paste a lounge code…" autocomplete="off" required><button>Join</button></form><button id="new-lounge" title="Create or join a lounge" aria-label="Create or join a lounge">＋</button></div>
    <button id="background-toggle" hidden>Chat background</button>
    <select id="chat-mode" aria-label="Chat visibility"><option value="auto">Chat · Auto</option><option value="visible">Chat · Visible</option><option value="hidden">Chat · Hidden</option></select>
    <button id="queue-toggle" aria-expanded="true">☷ <span>Up next</span><b id="queue-count">0</b></button>
   </header>
   <div id="workspace">
+   <div id="panel-controls" role="group" aria-label="Show or hide panels">
+    <button id="panel-left" aria-label="Hide rooms and members" title="Hide rooms and members" aria-controls="sidebar" aria-expanded="true"><span class="panel-symbol panel-symbol-left" aria-hidden="true"></span></button>
+    <button id="panel-top" aria-label="Hide top navigation" title="Hide top navigation" aria-controls="top-nav" aria-expanded="true"><span class="panel-symbol panel-symbol-top" aria-hidden="true"></span></button>
+    <button id="panel-right" aria-label="Hide Up next" title="Hide Up next" aria-controls="queue" aria-expanded="true"><span class="panel-symbol panel-symbol-right" aria-hidden="true"></span></button>
+   </div>
    <section id="stage" aria-label="Shared activity">
     <div id="ambient"><div class="ambient-copy"><span class="eyebrow">A MOMENT, TOGETHER</span><h2>Make yourself<br>at home.</h2><p>Watch something. Make something.<br>Or just stay a while.</p><button id="start-watch">Find something to watch ↗</button></div><div class="scene-credit">AURORA COAST <span>ORBIT ORIGINAL</span></div></div>
 
