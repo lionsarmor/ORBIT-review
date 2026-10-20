@@ -80,7 +80,13 @@ export class Activities{
    video.onended=()=>this.toast('That’s a wrap. Choose the next activity in Up next.');
    video.onerror=()=>this.toast('The browser cannot play this link. Try a direct video file or screen sharing.');
   }
-  const video=this.media;if(video.srcObject||kind==='local')return;
+  const video=this.media;
+  if(kind==='local'){
+   const arriving=w.actor===session.id?this.streams:this.remoteStreams.get(w.actor);
+   if(!this.localURLs.has(w.url)&&arriving&&video.srcObject!==arriving){video.srcObject=arriving;video.muted=w.actor===session.id;video.play().catch(()=>{});}
+   return;
+  }
+  if(video.srcObject)return;
   const target=Math.max(0,Number(w.time)||0)+(w.playing?Math.max(0,(Date.now()-w.at)/1000):0);
   if(video.readyState>0&&Math.abs(video.currentTime-target)>.25){this.expectedSeek=Number.isFinite(video.duration)?Math.min(target,video.duration):target;video.currentTime=this.expectedSeek;}
   if(w.playing)video.play().catch(()=>{});else video.pause();
