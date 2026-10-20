@@ -266,3 +266,7 @@ html[data-skin] .primary:not(:disabled):is(:hover,:focus-visible),
 .web-type-bar{order:1;display:flex;gap:8px;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line)}.web-type-bar[hidden]{display:none}.web-type-bar input{flex:1;min-width:0;font-size:12px}.web-type-bar button{font-size:10px;padding:7px 12px}.web-room-note #web-local{border-radius:6px;white-space:nowrap;font-size:9px;padding:4px 7px}.web-room-note #web-status{flex:1}.web-host-canvas{display:none}
 @media(max-width:650px){.web-room-note{flex-wrap:wrap}.web-room-note>span{max-width:none}.web-type-bar{gap:5px;padding:7px}.web-type-bar button{padding:7px;font-size:9px}.web-type-bar input{font-size:11px}.web-address-bar #web-back{padding:7px}.web-input-surface{touch-action:none}}
 .web-room{padding-bottom:44px}
+/* Visible chat uses the lounge's full height; Auto retains its compact overlay. */
+#chat-overlay.visible{top:0;max-height:none}
+#chat-overlay.visible #messages{flex:1;min-height:0;max-height:none}
+#chat-overlay.visible #composer,#chat-overlay.visible #chat-context{flex-shrink:0}
