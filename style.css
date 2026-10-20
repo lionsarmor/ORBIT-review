@@ -50,7 +50,7 @@ html[data-skin=roddy]{--bg:#141514;--panel:#1c1d1b;--panel2:#2b2c28;--line:#ded1
 .lounge-logo{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:var(--panel2);color:var(--accent);overflow:hidden;font-size:13px;border:2px solid transparent;transition:border-color .15s,transform .15s}
 .lounge-logo img{width:100%;height:100%;object-fit:cover}
 .lounge-tile:hover .lounge-logo{transform:translateY(-2px);border-color:var(--muted)}
-.lounge-tile.selected .lounge-logo{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent),transparent 85%)}
+.lounge-tile.selected .lounge-logo{border-color:#e6c387;outline:2px solid #c99c52;outline-offset:1px;box-shadow:0 0 13px #d4aa5e35}
 .lounge-caption{min-width:0;max-width:100%}.lounge-caption strong{display:block;font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #lounge-carousel .lounge-caption small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .lounge-unread{position:absolute;right:2px;top:0;background:var(--accent);color:var(--accentText);border-radius:12px;padding:2px 5px;min-width:16px;font-size:9px}
@@ -155,6 +155,76 @@ html[data-skin=roddy]{--bg:#141514;--panel:#1c1d1b;--panel2:#2b2c28;--line:#ded1
 @media(max-width:650px){#designer-form .designer-room input[data-room-name]{flex:1 1 calc(100% - 65px)}#designer-form .designer-room select{flex:1}#designer-form .design-actions{flex-direction:column}#designer-form .design-quiet{min-height:36px}}
 @media(prefers-reduced-motion:reduce){#modal .toggle-row input[type=checkbox]:before{transition:none}}
 @media(forced-colors:active){#modal .toggle-row input[type=checkbox]{appearance:auto}#modal .toggle-row input[type=checkbox]:before{display:none}#designer-form button:focus-visible{outline-color:Highlight}}
+
+/* A thin sheet of polished bronze, reserved for the lounge's fresh-start ticket. */
+#modal.wipe-modal{--ticket-ink:#322313;--ticket-muted:#594127;width:min(680px,calc(100% - 24px));padding:0;border-radius:13px;border:1px solid #f9e8b7;color:var(--ticket-ink);background:linear-gradient(118deg,#ae7947 0%,#dfbd82 13%,#fff0c5 26%,#c19359 38%,#e8cb91 53%,#fbedc4 65%,#ad7e49 85%,#e4c187 100%);box-shadow:inset 0 0 0 1px #42290d66,inset 0 2px #fff6,0 24px 80px #0008}
+#modal.wipe-modal::backdrop{background:#100e0ad1;backdrop-filter:blur(12px)}
+#modal.wipe-modal .modal-header{margin:0;padding:13px 20px;border-bottom:1px solid #79532745;background:#fff1bf17}
+#modal.wipe-modal .modal-header h2{font-size:11px;text-transform:uppercase;letter-spacing:2px;font-weight:600}
+#modal.wipe-modal .modal-header button{color:#47301c;background:none;border:0}
+.wipe-ticket{display:grid;grid-template-columns:minmax(0,1fr) 106px;position:relative;background:repeating-linear-gradient(0deg,#fff1 0px,#fff1 1px,transparent 1px,transparent 3px);overflow:hidden}
+.ticket-main{position:relative;padding:28px 30px 23px;min-width:0}
+.ticket-kicker{font-size:9px;letter-spacing:2.7px;display:flex;justify-content:space-between;font-weight:700}
+.ticket-kicker span{font-size:17px;line-height:10px}
+.ticket-rule{display:block;height:3px;border-top:1px solid #74502f;border-bottom:1px solid #74502f88;margin:14px 0 25px}
+#modal-body .ticket-admit{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ticket-muted);margin:0 0 10px;overflow-wrap:anywhere}
+.ticket-main h3{font-size:clamp(29px,4vw,40px);font-weight:500;letter-spacing:-1.7px;line-height:1.06;margin:0 0 18px;text-shadow:0 1px #fff5}
+#modal-body .ticket-description{font-size:12px;line-height:1.75;color:var(--ticket-ink);max-width:390px}
+.ticket-keeps{font-size:11px;line-height:1.7;padding:14px 0;border-top:1px solid #69472145;border-bottom:1px solid #69472145;margin:20px 0}
+.ticket-keeps>span{display:block;font-size:8px;font-weight:700;letter-spacing:2px;margin-bottom:5px;color:var(--ticket-muted)}
+.ticket-stub{display:flex;flex-direction:column;align-items:center;padding:30px 12px 24px;border-left:1px dashed #74502f9c;background:linear-gradient(93deg,#51350f18,#fff5 45%,#7a531d13);text-align:center}
+.ticket-stub>span{font-size:8px;letter-spacing:2px;writing-mode:vertical-rl}
+.ticket-planet{font-size:57px;line-height:1;margin:32px 0 22px;transform:rotate(-25deg);position:relative}
+.ticket-planet:after{content:'';position:absolute;left:-7px;right:-7px;top:23px;height:11px;border:1px solid #5e3e20;border-radius:50%}
+.ticket-stub>b{font-size:13px;font-weight:600;line-height:1.5;letter-spacing:2px}
+.ticket-stub>i{margin-top:auto;min-height:55px;width:44px;background:repeating-linear-gradient(90deg,#57401d 0 1px,transparent 1px 3px,#57401d 3px 5px,transparent 5px 8px);height:28px;max-height:28px;opacity:.65;transform:scaleY(.5);transform-origin:bottom}
+.ticket-stub>small{color:var(--ticket-muted);font-size:8px;letter-spacing:1.5px;line-height:1.7;margin-top:12px}
+.ticket-actions{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 12px}
+#modal.wipe-modal :is(.ticket-primary,.ticket-secondary){border-radius:5px;min-height:44px;padding:11px 17px;font-size:11px;font-weight:650;letter-spacing:.2px;transition:filter .16s,box-shadow .16s;border:1px solid #573818}
+#modal.wipe-modal .ticket-primary{color:#fff1cc;background:linear-gradient(112deg,#352418,#79542e 43%,#48301b 55%,#261b13);box-shadow:inset 0 1px #ffe2a75c,0 1px #fff7}
+#modal.wipe-modal .ticket-secondary{background:linear-gradient(125deg,#f9e4b365,#fff3cb77,#bb905550);color:#382614;border-color:#70502b80;box-shadow:inset 0 1px #fff9}
+#modal.wipe-modal .ticket-primary:not(:disabled):hover{filter:brightness(1.2);box-shadow:inset 0 1px #fff7,0 0 20px #fff0bd33}
+#modal.wipe-modal .ticket-secondary:hover{background:#fff1bd88}
+#modal.wipe-modal button:focus-visible{outline:2px solid #352313;outline-offset:3px}
+#modal.wipe-modal button:disabled{opacity:.48;cursor:wait}
+#modal.wipe-modal .ticket-link{padding:6px 0;background:none;border:0;color:#493019;text-decoration:underline;text-underline-offset:3px;font-size:10px}
+#modal-body .ticket-small{font-size:9px;color:var(--ticket-muted);line-height:1.65;margin:12px 0 0}
+#modal-body .ticket-result{font-size:14px;color:var(--ticket-ink);font-weight:550;padding:12px 0}
+#modal-body #wipe-error{color:#652b17;font-size:11px;font-weight:600}
+.ticket-votes{display:flex;align-items:center;gap:18px;margin:20px 0}
+.ticket-votes>strong{font-size:40px;letter-spacing:-2px;font-weight:500;line-height:1}
+.ticket-votes>strong>span{font-size:22px;color:var(--ticket-muted)}
+.ticket-votes>div{font-size:12px}
+.ticket-votes small{display:block;font-size:9px;margin-top:5px;color:var(--ticket-muted)}
+.ticket-guests{display:flex;flex-wrap:wrap;gap:6px}
+.ticket-guests>span{padding:5px 8px;border:1px solid #77573570;border-radius:20px;font-size:9px;max-width:100%;overflow-wrap:anywhere;background:#ffedc020}
+.ticket-guests>span>b{margin-left:6px}
+.ticket-guests>span.yes{background:#422d1b;color:#ffefc9;border-color:#422d1b}
+.ticket-guests>span.no{background:#fff6;color:#5e452d}
+@media(max-width:500px){.wipe-ticket{grid-template-columns:minmax(0,1fr) 55px}.ticket-main{padding:22px 18px}.ticket-stub{padding:24px 5px}.ticket-stub>b{font-size:9px;letter-spacing:1px}.ticket-stub>small{font-size:6px;letter-spacing:.5px}.ticket-planet{font-size:34px}.ticket-planet:after{top:13px;height:8px;left:-4px;right:-4px}.ticket-stub>i{width:28px}.ticket-actions{flex-direction:column}.ticket-kicker{font-size:7px;letter-spacing:1.8px}}
+@media(prefers-reduced-motion:reduce){#modal.wipe-modal button{transition:none}}
+@media(forced-colors:active){#modal.wipe-modal{background:Canvas;color:CanvasText;--ticket-ink:CanvasText;--ticket-muted:CanvasText;border:1px solid CanvasText}#modal.wipe-modal :is(.ticket-primary,.ticket-secondary){background:ButtonFace;color:ButtonText;border:1px solid ButtonText}.ticket-stub,.wipe-ticket{background:Canvas}.ticket-guests>span.yes{background:Highlight;color:HighlightText}}
+
+/* Move the reflection across the same metal; hover never replaces it with a flat fill. */
+html[data-skin] .primary,html[data-skin] .primary:hover,
+#designer-form .primary,#designer-form .primary:not(:disabled):hover{
+ background-color:var(--accent);
+ background-image:linear-gradient(110deg,color-mix(in srgb,var(--accent),#704a22 18%) 0%,var(--accent) 24%,color-mix(in srgb,var(--accent),#fff6dc 55%) 45%,var(--accent) 67%,color-mix(in srgb,var(--accent),#704a22 18%) 100%);
+ background-size:180% 100%;background-position:0% 50%;color:var(--accentText);
+ transition:background-position .7s cubic-bezier(.2,.65,.3,1),box-shadow .25s,border-color .25s;
+}
+html[data-skin] .primary:not(:disabled):is(:hover,:focus-visible),
+#designer-form .primary:not(:disabled):is(:hover,:focus-visible){background-position:100% 50%}
+#modal.wipe-modal .ticket-primary,#modal.wipe-modal .ticket-primary:not(:disabled):hover{
+ background-image:linear-gradient(110deg,#352418 0%,#684724 27%,#9e7945 45%,#49301c 67%,#261b13 100%);filter:none;
+}
+#modal.wipe-modal .ticket-secondary,#modal.wipe-modal .ticket-secondary:hover{
+ background-image:linear-gradient(110deg,#bb905550 0%,#f9e4b365 25%,#fff8ddbd 45%,#e0ba7d66 67%,#bb905550 100%);
+}
+#modal.wipe-modal :is(.ticket-primary,.ticket-secondary){background-size:180% 100%;background-position:0% 50%;transition:background-position .7s cubic-bezier(.2,.65,.3,1),box-shadow .25s,border-color .25s}
+#modal.wipe-modal :is(.ticket-primary,.ticket-secondary):not(:disabled):is(:hover,:focus-visible){background-position:100% 50%}
+@media(prefers-reduced-motion:reduce){html[data-skin] .primary,html[data-skin] .primary:hover,#designer-form .primary,#designer-form .primary:not(:disabled):hover,#modal.wipe-modal :is(.ticket-primary,.ticket-secondary){transition:none}}
+@media(forced-colors:active){html[data-skin] .primary,html[data-skin] .primary:hover,#designer-form .primary,#designer-form .primary:not(:disabled):hover,#modal.wipe-modal :is(.ticket-primary,.ticket-secondary),#modal.wipe-modal :is(.ticket-primary,.ticket-secondary):hover{background:ButtonFace;color:ButtonText;border:1px solid ButtonText}}
 
 @media(max-width:650px){.scene-credit{max-width:calc(50% - 75px);white-space:nowrap;overflow:hidden}.scene-credit span{display:none}#stage-status{max-width:calc(50% - 75px);right:12px}#stage-status span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#stage-status i{flex-shrink:0}}
 

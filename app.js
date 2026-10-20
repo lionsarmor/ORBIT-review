@@ -1,4 +1,6 @@
 import {Mesh,b64,bytes,random} from './mesh.js';
+import {createAuthority} from './lounge-authority.js';
+import {LoungeWipe} from './lounge-wipe.js';
 import {previewImage} from './link-preview.js';
 import init,{chess_state,chess_play,chess_computer,Chip8} from './pkg/orbit_core.js';
 import {Activities} from './activities.js';
@@ -13,7 +15,7 @@ export const uid=()=>b64(random(12));
 export function safeURL(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null;}catch{return null;}}
 let toastTimer;
 export function toast(s){$('#toast').textContent=s;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
-export function modal(title,html){for(const l of lounges.values())l.activities.arcade.release();$('#modal-title').textContent=title;$('#modal-body').innerHTML=html;if(!$('#modal').open)$('#modal').showModal();}
+export function modal(title,html){$('#modal').classList.remove('wipe-modal');delete $('#modal').dataset.wipeLounge;for(const l of lounges.values())l.activities.arcade.release();$('#modal-title').textContent=title;$('#modal-body').innerHTML=html;if(!$('#modal').open)$('#modal').showModal();}
 export function closeModal(){$('#modal').close();}
 let returnToWelcome=false;
 function showWelcome(){for(const l of lounges.values())l.activities.arcade.release();if(!$('#welcome').open)$('#welcome').showModal();}
@@ -28,8 +30,14 @@ let unread,awayReplies,due,idleTimer,soundEnabled=false,clock24=false;
 const connectors=new Connectors({modal,closeModal,toast,esc,$});
 function context(){
  const l={key:uid(),unread:new Map(),awayReplies:new Set(),due:new Set(),watchTicks:new Map(),session:{active:false,id:'',name:identity.value.name,profile:{name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about},room:'lounge',dm:null,members:new Map(),events:new Map(),eventBytes:0,private:[],drafts:new Map(),clock:0,state:{},privacy:'direct',notifications:identity.value.settings['orbit.notifications']==='1'&&'Notification'in window&&Notification.permission==='granted'},mesh:new Mesh()};
- l.activities=new Activities({emit:(...args)=>within(l,()=>emit(...args)),timeline:(...args)=>within(l,()=>sendTimeline(...args)),session:l.session,toast,modal,closeModal,esc,$,safeURL,uid,mesh:l.mesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});
+ l.activities=makeActivities(l);
+ l.wipe=new LoungeWipe({mesh:l.mesh,session:l.session,uid,layout:()=>design({...l.session.state,rooms:Object.values(l.session.state.savedRooms||l.session.state.rooms||{})}),apply:layout=>resetLounge(l,layout),change:opened=>refreshWipe(l,opened),notice:toast});
  wire(l);return l;
+}
+function makeActivities(l){
+ let a;const live=()=>l.activities===a;
+ const scopedMesh={clockOffsets:l.mesh.clockOffsets,lastOffsets:l.mesh.lastOffsets,send:(...args)=>live()?l.mesh.send(...args):Promise.resolve(),share:(stream,...args)=>{if(live())return l.mesh.share(stream,...args);stream?.getTracks().forEach(t=>t.stop());return Promise.resolve();}};
+ a=new Activities({emit:(...args)=>live()&&within(l,()=>emit(...args)),timeline:(...args)=>live()&&within(l,()=>sendTimeline(...args)),session:l.session,toast,modal:(...args)=>live()&&modal(...args),closeModal,esc,$,safeURL,uid,mesh:scopedMesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});return a;
 }
 function bind(l){current=l;mesh=l.mesh;session=l.session;activities=l.activities;unread=l.unread;awayReplies=l.awayReplies;due=l.due;}
 function within(l,work){const old=current;bind(l);try{return work();}finally{bind(old);}}
@@ -63,15 +71,16 @@ export async function enter(create,input=$('#join-code').value,template=null){
   if(!create){const parsed=invitation(input);input=parsed.code;joinKey=parsed.id;if(joining.has(joinKey))return toast('That lounge is already connecting.');const existing=lounges.get(parsed.id);if(existing){activate(existing);return;}saved=identity.value.lounges.find(x=>x.id===parsed.id);if(!saved){if(identity.value.lounges.length>=50)throw Error('Your ID can remember up to 50 lounges.');saved={...parsed,name:'Invited lounge',logo:'',alias:'',auto:false,design:null};identity.value.lounges.push(saved);if(identity.value.lounges.length>50)throw Error('Your ID can remember up to 50 lounges.');saveIdentity();}}
   if(lounges.size+joining.size>=4)throw Error('Up to four live lounges per window in this build. Leave one before joining another.');
   joinKey=joinKey||uid();joining.add(joinKey);joiningHere=true;$('#entry-status').textContent='Connecting…';await init();const l=context();l.session.privacy=identity.value.settings['orbit.privacy']||homeContext.session.privacy||selected?.session.privacy||'direct';
-  try{const result=await l.mesh.start(input,create,{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'},l.session.privacy);Object.assign(l.session,{active:true,id:result.id,name,profile:{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'}});l.session.members.set(result.id,l.session.profile);l.key=l.mesh.room;lounges.set(l.key,l);l.status='connected';
-   if(create){saved={id:l.key,code:result.code,name:template?.name||'Tonight',logo:template?.logo||'',alias:'',auto:false,design:template||null};identity.value.lounges.push(saved);}
+  try{const creator=create?await createAuthority():{secret:saved?.creatorSecret||''};const result=await l.mesh.start(input,create,{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'},l.session.privacy,creator);Object.assign(l.session,{active:true,id:result.id,name,profile:{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'}});l.session.members.set(result.id,l.session.profile);l.key=l.mesh.room;lounges.set(l.key,l);l.status='connected';
+   if(create){saved={id:l.key,code:result.code,name:template?.name||'Tonight',logo:template?.logo||'',alias:'',auto:false,design:template||null,creatorSecret:creator.secret};identity.value.lounges.push(saved);}
    l.saved=saved;activate(l);if(create||result.fresh)initializeLounge(l,template);else within(l,()=>{rebuild();render();});saveIdentity();$('#join-code').value='';$('#lounge-code').value='';$('#entry-status').textContent='Your ID is saved on this device.';
-  }catch(e){l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();throw e;}
+  }catch(e){l.wipe.destroy();l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();throw e;}
  }catch(e){if(saved)saved.state='unknown';$('#entry-status').textContent=e.message;toast(e.message);renderHub();}finally{if(joiningHere){joining.delete(joinKey);renderHub();}}
 }
 // A reusable invitation opens an empty visit; only local appearance is restored.
 function initializeLounge(l,template=null){
  if(!l.session.active||l.session.state.owner)return;
+ l.wipe.begin();
  const layout=design(template||l.saved.design||{name:l.saved.name==='Invited lounge'?'Tonight':l.saved.name,logo:l.saved.logo,accent:'',rooms:defaultRooms});
  within(l,()=>{emit('space',{name:layout.name});emit('design',layout);});
 }
@@ -148,16 +157,17 @@ function rebuild(){
 }
 function wire(l){
 l.mesh.addEventListener('joined',e=>within(l,()=>{
- const {id,profile}=e.detail;session.members.set(id,profile);
+ const {id,profile}=e.detail;session.members.set(id,profile);l.wipe.joined(id);
  mesh.send({type:'snapshot',events:[...session.events.values()],profiles:[...session.members]},id);
  for(const [room,tick]of current.watchTicks)mesh.send({type:'watch-tick',room,...tick},id);
  activities.arcade.peerJoined(id);
  render();toast(`${profile.name||'Someone'} joined your space.`);
 }));
-l.mesh.addEventListener('left',e=>within(l,()=>{const name=session.members.get(e.detail)?.name;session.members.delete(e.detail);activities.arcade.peerLeft(e.detail);if(session.dm===e.detail){session.dm=null;if(selected===l)selectRoom(session.room);}render();if(name)toast(`${name} left.`);electOwner(l);}));
+l.mesh.addEventListener('left',e=>within(l,()=>{const name=session.members.get(e.detail)?.name;session.members.delete(e.detail);l.wipe.membershipChanged();activities.arcade.peerLeft(e.detail);if(session.dm===e.detail){session.dm=null;if(selected===l)selectRoom(session.room);}render();if(name)toast(`${name} left.`);electOwner(l);}));
 l.mesh.addEventListener('data',e=>within(l,()=>{
  if(!session.active)return;
  const {id,value:v}=e.detail;
+ if(v.type?.startsWith('wipe-')){l.wipe.receive(id,v).catch(()=>toast('That lounge refresh request was rejected.'));return;}
  if(v.type==='watch-tick')acceptTimeline(id,v);
  else if(v.type==='event')accept(v.event,id);
  else if(v.type==='snapshot'&&Array.isArray(v.events)&&v.events.length<=2000){
@@ -174,7 +184,7 @@ l.mesh.addEventListener('data',e=>within(l,()=>{
 l.mesh.addEventListener('error',e=>toast(e.detail));
 l.mesh.addEventListener('vacant',()=>initializeLounge(l));
 l.mesh.addEventListener('stream',e=>l.activities.stream(e.detail.id,e.detail.stream,e.detail.key));
-l.mesh.addEventListener('connection',e=>{l.status=e?.detail?.state==='peer-only'?'peer only':l.mesh.reconnecting?'reconnecting':'connected';if(selected===l)renderStatus();renderHub();});
+l.mesh.addEventListener('connection',e=>{l.wipe.membershipChanged();l.status=e?.detail?.state==='peer-only'?'peer only':l.mesh.reconnecting?'reconnecting':'connected';if(selected===l)renderStatus();renderHub();});
 l.mesh.addEventListener('recovered',()=>within(l,()=>{for(const id of l.mesh.peers.keys())l.mesh.send({type:'snapshot',events:[...l.session.events.values()]},id);render();}));
 }
 function notify(name,text){if(soundEnabled)new Audio('assets/sounds/message.wav').play().catch(()=>{});if(session.notifications&&document.hidden&&Notification.permission==='granted')new Notification(`ORBIT · ${name||'Message'}`,{body:String(text).slice(0,100)});}
@@ -230,7 +240,7 @@ $('#leave').onclick=()=>leave();
 function electOwner(l){within(l,()=>{const previous=session.state.owner;if(previous&&!session.members.has(previous)){const next=[...session.members.keys()].sort()[0];if(next===session.id)emit('owner',{previous,next});}});}
 export function leaveLounge(l=selected){
  if(!l)return;within(l,()=>{const next=[...session.members.keys()].filter(id=>id!==session.id).sort()[0];if(session.state.owner===session.id&&next)emit('owner',{previous:session.id,next});});
- l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.watchTicks.clear();l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
+ l.wipe.destroy();l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.watchTicks.clear();l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
  if(selected===l)activate(null);renderHub();
 }
 async function forgetLounge(id){
@@ -353,6 +363,45 @@ function rememberDesign(l){
  const layout=design({...state,rooms:Object.values(state.savedRooms||state.rooms)});
  if(JSON.stringify(entry.design)!==JSON.stringify(layout)){entry.name=layout.name;entry.logo=layout.logo;entry.design=layout;saveIdentity();}
 }
+function resetLounge(l,layout){
+ const owner=l.session.members.has(l.session.state.owner)?l.session.state.owner:[...l.session.members.keys()].sort()[0];
+ const old=l.activities;l.activities=null;old.active=false;old.stop();old.arcade.destroy();l.mesh.clearMedia();
+ Object.assign(l.session,{private:[],dm:null,eventBytes:0,clock:2,state:{}});
+ l.session.events.clear();l.session.drafts.clear();l.watchTicks.clear();l.unread.clear();l.awayReplies.clear();l.due.clear();
+ for(const [suffix,type,data,n]of [['S','space',{name:layout.name},1],['D','design',layout,2]]){
+  const e={id:l.wipe.epoch.id+suffix,actor:owner,n,at:0,room:'lounge',type,data};
+  l.session.events.set(e.id,e);l.session.eventBytes+=JSON.stringify(e).length;
+ }
+ l.activities=makeActivities(l);l.activities.active=selected===l;
+ within(l,()=>{rebuild();if(selected===l){$('#message').value='';$('#chat-context').style.display='none';}render();});
+ l.mesh.send({type:'snapshot',events:[...l.session.events.values()]});
+}
+function refreshWipe(l,opened=false){
+ if(!l.session.active)return;
+ if(selected===l)$('#lounge-options').textContent=l.wipe.ballot?'Lounge options · Vote ✦':'Lounge options ⋯';
+ if($('#modal').open&&$('#modal').dataset.wipeLounge===l.key)wipeDialog(l);
+ else if(opened){if(selected===l&&!$('#modal').open)wipeDialog(l);else toast(`${l.session.state.name}: a fresh-start vote is open in Lounge options.`);}
+}
+function wipeDialog(l){
+ if(!l?.session.active)return;
+ const w=l.wipe,b=w.ballot,creator=l.mesh.isCreator,creatorHere=w.creatorHere(),ready=w.ready();
+ const yes=b?[...b.votes.values()].filter(Boolean).length:0,needed=Math.floor((b?.roster.length||l.session.members.size)/2)+1;
+ const focused=$('#modal').contains(document.activeElement)?document.activeElement.id:'';
+ let actions;
+ if(w.desynced)actions='<button id="wipe-rejoin" class="ticket-primary">Reopen this lounge ↗</button>';
+ else if(b)actions=`<div class="ticket-votes" role="status" aria-live="polite"><strong>${yes}<span> / ${needed}</span></strong><div>votes to clear the stage<small>${b.roster.length} members · more than half must approve</small></div></div><div class="ticket-guests">${b.roster.map(id=>`<span class="${b.votes.has(id)?b.votes.get(id)?'yes':'no':''}">${esc(l.session.members.get(id)?.name||'Guest')} <b>${b.votes.has(id)?b.votes.get(id)?'✦':'−':'·'}</b></span>`).join('')}</div><div class="ticket-actions">${b.votes.has(l.session.id)?'<p>Your vote is in.</p>':'<button id="wipe-yes" class="ticket-primary">Yes, wipe live content ✦</button><button id="wipe-no" class="ticket-secondary">Keep this visit</button>'}${b.requester===l.session.id?'<button id="wipe-cancel" class="ticket-link">Withdraw vote</button>':''}</div><p class="ticket-small">Voting stays open for 60 seconds. A changed guest list cancels the vote.</p>`;
+ else if(w.message)actions=`<p id="wipe-result" role="status" class="ticket-result">${esc(w.message)}</p><button id="wipe-done" class="ticket-primary">Back to the lounge ↗</button>`;
+ else if(creator)actions=`<div class="ticket-actions"><button id="wipe-confirm" class="ticket-primary" ${ready?'':'disabled'}>Wipe live content ✦</button><button id="wipe-done" class="ticket-secondary">Keep the moment</button></div>`;
+ else if(creatorHere)actions='<p class="ticket-result">The creator is here and holds this ticket.</p><button id="wipe-done" class="ticket-secondary">Back to the lounge</button>';
+ else actions=`<div class="ticket-actions"><button id="wipe-start" class="ticket-primary" ${ready?'':'disabled'}>Start a vote · my vote is yes ✦</button><button id="wipe-done" class="ticket-secondary">Keep the moment</button></div><p class="ticket-small">${needed} of ${l.session.members.size} connected members must approve.${l.mesh.creatorPublic?'':' This older invitation has no verified creator credential.'}</p>`;
+ modal('A fresh orbit.',`<section class="wipe-ticket"><div class="ticket-main"><div class="ticket-kicker">ORBIT LOUNGE SERVICES <span>✦</span></div><span class="ticket-rule"></span><p class="ticket-admit">${esc(l.session.state.name)}</p><h3>Clear the stage.<br>Keep the company.</h3><p class="ticket-description">Wipe all live chat, DMs, playlists, drawings, games and shared activities for everyone here. Screen sharing and microphones stop, too.</p><div class="ticket-keeps"><span>STAYS WITH YOU</span>The lounge · your code · your design · your people</div>${actions}<p id="wipe-error" role="alert"></p>${!ready&&!w.message&&!b&&!creatorHere||creator&&!ready?'<p class="ticket-small">Waiting for every member to connect with the latest ORBIT.</p>':''}<p class="ticket-small">A fresh start cannot be undone. Copies made outside ORBIT stay outside ORBIT.</p></div><aside class="ticket-stub" aria-hidden="true"><span>ADMIT EVERYONE</span><div class="ticket-planet">◌</div><b>FRESH<br>START</b><i></i><small>${creator?'CREATOR’S EDITION':'COMMUNITY EDITION'}</small></aside></section>`);
+ $('#modal').classList.add('wipe-modal');$('#modal').dataset.wipeLounge=l.key;
+ const action=(selector,fn)=>$(selector)?.addEventListener('click',async()=>{try{await fn();}catch(e){if($('#modal').dataset.wipeLounge===l.key)$('#wipe-error').textContent=e.message;}});
+ action('#wipe-confirm',()=>w.creatorWipe());action('#wipe-start',()=>w.request());action('#wipe-yes',()=>w.vote(true));action('#wipe-no',()=>w.vote(false));action('#wipe-cancel',()=>w.cancel());
+ action('#wipe-done',()=>{w.message='';closeModal();});
+ action('#wipe-rejoin',()=>{const code=l.saved.code;closeModal();leaveLounge(l);return enter(false,code);});
+ if(focused&&document.getElementById(focused))document.getElementById(focused).focus();
+}
 function applyLoungeDesign(){
  const d=selected?.session.state,stage=$('#stage');if(d?.accent){document.documentElement.style.setProperty('--accent',d.accent);const rgb=d.accent.slice(1).match(/../g).map(x=>parseInt(x,16));document.documentElement.style.setProperty('--accentText',rgb[0]*.299+rgb[1]*.587+rgb[2]*.114<140?'#fff':'#201509');}else{document.documentElement.style.removeProperty('--accent');document.documentElement.style.removeProperty('--accentText');}
  stage.style.setProperty('--lounge-background',d?.background?`url("${d.background}")`:'none');
@@ -368,12 +417,13 @@ function renderHub(){
  $('#entry-design').hidden=!identity.value.templates.length;
  const choice=$('#home-template').value;$('#home-template').innerHTML='<option value="">Fresh lounge</option>'+identity.value.templates.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('');$('#home-template').value=choice;
  $('#template-list').innerHTML=identity.value.templates.length?identity.value.templates.map((t,i)=>`<div class="template-row"><span>${esc(t.name)} · ${t.rooms.length} rooms</span><button data-template-create="${i}">Create from design</button><button data-template-remove="${i}" aria-label="Remove design">×</button></div>`).join(''):'<p>No saved designs yet. Design a lounge, then save its layout.</p>';
- $('#lounge-design').disabled=!selected;$('#lounge-options').disabled=!selected;syncPanelButtons();
+ $('#lounge-design').disabled=!selected;$('#lounge-options').disabled=!selected;$('#lounge-options').textContent=selected?.wipe.ballot?'Lounge options · Vote ✦':'Lounge options ⋯';syncPanelButtons();
 }
 function savedOptions(id){
  const entry=identity.value.lounges.find(e=>e.id===id);if(!entry)return;const l=lounges.get(id);
- modal('Saved lounge',`<p>${esc(entry.name)}</p><label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button>':'<button id="saved-open">Try joining</button>'}${l?'':'<button id="saved-forget" class="danger">Forget invitation</button>'}<button id="saved-left">Move left</button></div><p>Closing ORBIT keeps this lounge in your ID. Leave removes its saved code and design from this ID. Anyone who kept their code can reopen an empty lounge; old chat and activities do not return.</p>`);
+ modal('Saved lounge',`<p>${esc(entry.name)}</p><label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button><button id="saved-wipe">✦ Wipe lounge…</button>':'<button id="saved-open">Try joining</button>'}${l?'':'<button id="saved-forget" class="danger">Forget invitation</button>'}<button id="saved-left">Move left</button></div><p>Closing ORBIT keeps this lounge in your ID. Leave removes its saved code and design from this ID. Anyone who kept their code can reopen an empty lounge; old chat and activities do not return.</p>`);
  $('#saved-apply').onclick=()=>{entry.alias=$('#lounge-alias').value.trim();entry.auto=$('#lounge-auto').checked;saveIdentity();closeModal();renderHub();};
+ $('#saved-wipe')?.addEventListener('click',()=>{if(!l.wipe.ballot)l.wipe.message='';wipeDialog(l);});
  $('#saved-retry')?.addEventListener('click',()=>{l.mesh.retry();closeModal();});
  $('#saved-leave')?.addEventListener('click',async()=>{await forgetLounge(id);closeModal();});$('#saved-open')?.addEventListener('click',()=>{closeModal();enter(false,entry.code);});
  $('#saved-forget')?.addEventListener('click',async()=>{await forgetLounge(id);closeModal();});
@@ -389,7 +439,7 @@ $('#template-list').onclick=e=>{const create=e.target.closest('[data-template-cr
 $('#lounge-options').onclick=()=>selected&&savedOptions(selected.key);
 function download(text,name){const u=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 function identityDialog(){
- modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations, but never chat, ROMs or live session keys.</p><p>For export, choose a new backup passphrase below. For import, enter the passphrase used when that file was exported. This is separate from a RODDY or service login; creating a lounge does not create a passphrase.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="Export: choose one · Import: use the original"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Forgot an old backup’s passphrase? If your ID is loaded here, choose a new one and export a fresh backup. ORBIT does not store backup passphrases.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
+ modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations and your creator controls, but never chat, ROMs or live session keys.</p><p>For export, choose a new backup passphrase below. For import, enter the passphrase used when that file was exported. This is separate from a RODDY or service login; creating a lounge does not create a passphrase.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="Export: choose one · Import: use the original"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Forgot an old backup’s passphrase? If your ID is loaded here, choose a new one and export a fresh backup. ORBIT does not store backup passphrases.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
  $('#id-avatar').onclick=()=>$('#id-avatar-file').click();$('#id-avatar-file').onchange=async e=>{try{const value=await readImage(e.target.files[0],128);identity.value.avatar=value;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile.avatar=value;emit('profile',session.profile);});identityDialog();}catch(error){toast(error.message);}};
  $('#id-export').onclick=async()=>{try{for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))identity.value.settings[key]=localStorage.getItem(key);download(await identity.export($('#id-passphrase').value),'ORBIT.orbit-id');$('#id-status').textContent='Encrypted ID exported. Keep its passphrase separately.';}catch(e){$('#id-status').textContent=e.message;}};
  wireIdentityImport();
@@ -399,7 +449,7 @@ function importIdentityDialog(){
  modal('Import your ID card',`<p>Use the passphrase chosen when this backup was exported. It is not your lounge code or RODDY login password. Bring your name, avatar and saved lounges with you.</p><label>Card passphrase<input id="id-passphrase" type="password" autocomplete="current-password" placeholder="The passphrase used when exporting"></label><button id="id-import" class="primary wide">Choose ID card…</button><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Your card is opened on this device.</p>`);wireIdentityImport();
 }
 function wireIdentityImport(){
- $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();returnToWelcome=false;closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};
+ $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>${next.lounges.filter(l=>l.creatorSecret).length} creator controls included. Importing this ID carries that lounge authority.</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();returnToWelcome=false;closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};
 }
 $('#lounge-design').onclick=designer;
 function designer(){

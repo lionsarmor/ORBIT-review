@@ -1,5 +1,6 @@
 // Session data stays in memory. Signaling contains encrypted SDP/identity only.
 import {apiURL,signalURL} from './runtime.js';
+import {signAuthority,verifyAuthority,presence} from './lounge-authority.js';
 const enc=new TextEncoder(),dec=new TextDecoder();
 export const b64=b=>btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
 export const bytes=s=>Uint8Array.from(atob(s.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
@@ -14,17 +15,20 @@ async function open(key,value,aad=''){
 export class Mesh extends EventTarget {
  constructor(){super();this.peers=new Map();this.sequence=0;this.closed=true;this.stream=null;this.mediaStreams=new Map();this.clockOffsets=new Map();this.lastOffsets=new Map();}
  emit(type,detail){this.dispatchEvent(new CustomEvent(type,{detail}));}
- async start(code,create,profile,privacy='direct'){
+ async start(code,create,profile,privacy='direct',creator=null){
   if(!crypto.subtle)throw Error('Open ORBIT on localhost or an HTTPS address.');
   if(!this.closed)this.leave();
   let token;
-  if(create){token={v:1,r:b64(random(18)),k:b64(random(32))};code=b64(enc.encode(JSON.stringify(token)));}
+  if(create){token={v:1,r:b64(random(18)),k:b64(random(32)),...(creator?.publicKey?{c:creator.publicKey}:{})};code=b64(enc.encode(JSON.stringify(token)));}
   else{try{const raw=code.includes('#')?code.split('#').at(-1):code;token=JSON.parse(dec.decode(bytes(raw)));code=raw;}catch{throw Error('That invite code is not valid.');}}
   if(token.v!==1||!/^[-\w]{24}$/.test(token.r)||!/^[-\w]{43}$/.test(token.k))throw Error('Invalid invite.');
+  if(token.c!==undefined&&!/^[-\w]{87}$/.test(token.c))throw Error('Invalid creator identity.');
+  this.creatorPublic=token.c||'';this.creatorSecret=creator?.secret||'';this.contentEpoch='initial';this.allowLegacyContent=true;this.isCreator=false;this.creatorProof='';
   this.id=b64(random(16));this.room=token.r;this.code=code;this.signalPeers=new Set();this.profile=profile;this.closed=false;this.sequence=0;this.privacy=privacy;
   this.secret=await crypto.subtle.importKey('raw',bytes(token.k),'AES-GCM',false,['encrypt','decrypt']);
   this.identity=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveKey']);
   this.publicKey=b64(new Uint8Array(await crypto.subtle.exportKey('raw',this.identity.publicKey)));
+  if(this.creatorSecret){try{const claim=presence(this.room,this.id,this.publicKey);this.creatorProof=await signAuthority(this.creatorSecret,claim);this.isCreator=await verifyAuthority(this.creatorPublic,claim,this.creatorProof);}catch{}if(!this.isCreator){this.creatorSecret='';this.creatorProof='';}}
   const config=await fetch(apiURL('config')).then(r=>{if(!r.ok)throw Error('The connection helper is unavailable.');return r.json();});
   this.iceServers=Array.isArray(config.iceServers)?config.iceServers:[];
   this.iceRefresh=setInterval(()=>this.refreshIce().catch(()=>this.emit('error','Could not refresh relay access. Reconnecting may be needed if the helper stays unavailable.')),30*60*1000);
@@ -66,7 +70,8 @@ export class Mesh extends EventTarget {
    const key=await crypto.subtle.importKey('raw',bytes(value.key),{name:'ECDH',namedCurve:'P-256'},false,[]);
    const pair=await crypto.subtle.deriveKey({name:'ECDH',public:key},this.identity.privateKey,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
    const pc=new RTCPeerConnection({iceServers:this.iceServers,iceTransportPolicy:this.privacy==='relay'?'relay':'all'});
-   const p={pc,key:pair,profile:value.profile,last:0,sendChain:Promise.resolve(),receiveChain:Promise.resolve(),candidates:[],chunks:new Map(),mediaNames:new Map(),incomingStreams:new Map(),makingOffer:false,answerPending:false,ignoreOffer:false,polite:this.id>v.from};
+   const creator=await verifyAuthority(this.creatorPublic,presence(this.room,v.from,value.key),value.creatorProof);
+   const p={pc,key:pair,creator,wipeVersion:value.wipeVersion===1?1:0,profile:value.profile,last:0,sendChain:Promise.resolve(),receiveChain:Promise.resolve(),candidates:[],chunks:new Map(),mediaNames:new Map(),incomingStreams:new Map(),makingOffer:false,answerPending:false,ignoreOffer:false,polite:this.id>v.from};
    this.peers.set(v.from,p);
    pc.onicecandidate=e=>{if(e.candidate)this.sendSignal(v.from,{type:'ice',candidate:e.candidate}).catch(()=>{});};
    pc.ondatachannel=e=>this.channel(v.from,e.channel);
@@ -96,7 +101,7 @@ export class Mesh extends EventTarget {
    if(value.sdp.type==='offer'){await p.pc.setLocalDescription();await this.sendSignal(v.from,{type:'sdp',sdp:p.pc.localDescription});}
   }
  }
- async hello(id){await this.sendSignal(id,{type:'hello',key:this.publicKey,profile:this.profile});}
+ async hello(id){await this.sendSignal(id,{type:'hello',key:this.publicKey,profile:this.profile,wipeVersion:1,creatorProof:this.creatorProof});}
  async refreshIce(){
   if(this.closed)return;
   const response=await fetch(apiURL('config'));if(!response.ok)throw Error('Relay credential refresh failed.');
@@ -112,7 +117,7 @@ export class Mesh extends EventTarget {
  async sendSignal(to,value){if(this.closed)return;const data=await seal(this.secret,value,`${this.room}:${this.id}:${to}`);if(this.ws?.readyState===1)this.ws.send(JSON.stringify({to,...data}));}
  channel(id,dc){
   const p=this.peers.get(id);p.dc=dc;
-  dc.onopen=()=>{if(this.closed||this.peers.get(id)!==p){dc.close();return;}for(const [key,stream]of this.mediaStreams)this.send({type:'media-stream',key,stream:stream.id},id);this.send({type:'clock-ping',at:performance.now()},id);this.emit('joined',{id,profile:p.profile});};
+  dc.onopen=()=>{if(this.closed||this.peers.get(id)!==p){dc.close();return;}this.emit('joined',{id,profile:p.profile});for(const [key,stream]of this.mediaStreams)this.send({type:'media-stream',key,stream:stream.id},id);this.send({type:'clock-ping',at:performance.now()},id);};
   dc.onmessage=e=>{if(this.closed||this.peers.get(id)!==p)return;p.receiveChain=p.receiveChain.then(async()=>{
    const packet=await open(p.key,JSON.parse(e.data),`${this.room}:${id}:${this.id}`);
    if(!Number.isSafeInteger(packet.seq)||packet.seq<=p.last)return;p.last=packet.seq;
@@ -127,7 +132,7 @@ export class Mesh extends EventTarget {
   dc.onclose=()=>{this.emit('connection',{id,state:'disconnected'});clearTimeout(p.departure);p.departure=setTimeout(()=>{if(p.dc.readyState==='closed')this.drop(id);},1000);};
  }
  send(value,to=null){
-  const text=JSON.stringify(value);if(text.length>2e6)throw Error('Activity is too large to sync.');
+  value={...value,_epoch:this.contentEpoch};const text=JSON.stringify(value);if(text.length>2e6)throw Error('Activity is too large to sync.');
   const pending=[];for(const[id,p]of this.peers){if(to&&id!==to||p.dc?.readyState!=='open')continue;
    p.sendChain=p.sendChain.then(async()=>{
     const pieces=text.length>8000?Array.from({length:Math.ceil(text.length/8000)},(_,i)=>text.slice(i*8000,(i+1)*8000)):null;
@@ -146,6 +151,8 @@ export class Mesh extends EventTarget {
   if(value?.type==='peer-bye'){this.drop(id);return;}
   if(value?.type==='clock-ping'&&Number.isFinite(value.at)){this.send({type:'clock-pong',at:value.at,remote:performance.now()},id);return;}
   if(value?.type==='clock-pong'&&Number.isFinite(value.at)&&Number.isFinite(value.remote)){const now=performance.now(),rtt=now-value.at;if(rtt>=0&&rtt<5000){const previous=this.clockOffsets.get(id),offset=(value.at+now)/2-value.remote;if(!previous||rtt<previous.rtt*1.5)this.clockOffsets.set(id,{rtt,offset:previous?previous.offset*.25+offset*.75:offset});}return;}
+  if(value?.type?.startsWith('wipe-')){this.emit('data',{id,value});return;}
+  if(value?._epoch===undefined&&this.peers.get(id)?.wipeVersion!==1){if(!this.allowLegacyContent)return;}else if(value?._epoch!==this.contentEpoch)return;
   if(value?.type==='media-stream'){
    if(typeof value.key!=='string'||value.key.length>100||typeof value.stream!=='string'||value.stream.length>100)return;
    const p=this.peers.get(id);if(!p)return;for(const [old,key]of p.mediaNames)if(key===value.key&&old!==value.stream){p.mediaNames.delete(old);p.incomingStreams.delete(old);}if(p.mediaNames.size>=16&&!p.mediaNames.has(value.stream))return;
@@ -162,5 +169,6 @@ export class Mesh extends EventTarget {
    if(stream)for(const track of stream.getTracks())p.pc.addTrack(track,stream);
   }
  }
+ clearMedia(){for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;for(const p of this.peers.values()){if(p.pc.signalingState!=='closed')for(const sender of p.pc.getSenders())if(sender.track)p.pc.removeTrack(sender);p.mediaNames.clear();p.incomingStreams.clear();p.chunks.clear();}}
  leave(){this.send({type:'peer-bye'});this.closed=true;this.readyOnce=false;this.reconnecting=false;clearTimeout(this.retryTimer);clearInterval(this.timing);clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values()){clearTimeout(p.departure);setTimeout(()=>p.pc?.close(),200);}this.peers.clear();for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;this.secret=null;this.identity=null;this.code='';}
 }

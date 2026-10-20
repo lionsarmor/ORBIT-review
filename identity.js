@@ -6,7 +6,7 @@ const text=(v,n)=>typeof v==='string'?v.slice(0,n):'';
 export function image(v,limit=220000){return typeof v==='string'&&v.length<=limit&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)?v:'';}
 export function invitation(input){
  let code=String(input).trim();
- try{if(code.includes('://')){const u=new URL(code);if(!['https:','http:'].includes(u.protocol))throw Error();code=u.hash.slice(1);}const token=JSON.parse(decode.decode(Uint8Array.from(atob(code.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0))));if(token.v!==1||!/^[-\w]{24}$/.test(token.r)||!/^[-\w]{43}$/.test(token.k))throw Error();return {id:token.r,code};}catch{throw Error('That lounge code is not valid.');}
+ try{if(code.includes('://')){const u=new URL(code);if(!['https:','http:'].includes(u.protocol))throw Error();code=u.hash.slice(1);}const token=JSON.parse(decode.decode(Uint8Array.from(atob(code.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0))));if(token.v!==1||!/^[-\w]{24}$/.test(token.r)||!/^[-\w]{43}$/.test(token.k))throw Error();if(token.c!==undefined&&!/^[-\w]{87}$/.test(token.c))throw Error();return {id:token.r,code};}catch{throw Error('That lounge code is not valid.');}
 }
 export function design(d={}){
  const modes=['ambient','watch','whiteboard','chess','emulator','tasks','news'];
@@ -16,7 +16,7 @@ export function design(d={}){
 }
 export function validate(v){
  if(!v||v.format!=='orbit-id'||v.version!==1||typeof v.name!=='string'||!Array.isArray(v.lounges)||!Array.isArray(v.templates)||v.lounges.length>50||v.templates.length>12)throw Error('This is not a supported ORBIT ID card.');
- const lounges=[];for(const raw of v.lounges){const entry=invitation(raw.code);if(lounges.some(l=>l.id===entry.id))continue;lounges.push({...entry,name:text(raw.name,40)||'Saved lounge',logo:image(raw.logo,70000),alias:text(raw.alias,40),auto:!!raw.auto,design:raw.design?design(raw.design):null});}
+ const lounges=[];for(const raw of v.lounges){const entry=invitation(raw.code);if(lounges.some(l=>l.id===entry.id))continue;lounges.push({...entry,name:text(raw.name,40)||'Saved lounge',logo:image(raw.logo,70000),alias:text(raw.alias,40),auto:!!raw.auto,design:raw.design?design(raw.design):null,...(typeof raw.creatorSecret==='string'&&/^[-\w]{100,300}$/.test(raw.creatorSecret)?{creatorSecret:raw.creatorSecret}:{})});}
  const settings={};const rules={skin:v=>['orbit','buddy','roddy'].includes(v),opacity:v=>/^\d{1,2}$/.test(v)&&Number(v)<=70,sound:v=>['0','1'].includes(v),notifications:v=>['0','1'].includes(v),clock24:v=>['0','1'].includes(v),background:v=>['default','plain','custom'].includes(v),'background.image':v=>!!image(v,1500000),pad:v=>/^[0-3]$/.test(v),deadzone:v=>Number(v)>=.1&&Number(v)<=.6&&/^0\.\d+$/.test(v),privacy:v=>['direct','relay'].includes(v)};
  for(const [key,value]of Object.entries(v.settings||{})){const rule=rules[key.replace(/^orbit\./,'')];if(key.startsWith('orbit.')&&typeof value==='string'&&rule&&rule(value))settings[key]=value;}
 
@@ -52,7 +52,7 @@ export class Identity extends EventTarget{
   const value=validate(v);value.lounges.forEach(l=>l.auto=false);return value;
  }
  async import(value,merge){
-  const next=validate(value);if(merge){const existing=this.value;next.lounges=[...existing.lounges,...next.lounges.filter(l=>!existing.lounges.some(x=>x.id===l.id))];next.templates=[...existing.templates,...next.templates].slice(0,12);}
+  const next=validate(value);if(merge){const existing=this.value;const imported=new Map(next.lounges.map(l=>[l.code,l]));next.lounges=[...existing.lounges.map(l=>!l.creatorSecret&&imported.get(l.code)?.creatorSecret?{...l,creatorSecret:imported.get(l.code).creatorSecret}:l),...next.lounges.filter(l=>!existing.lounges.some(x=>x.id===l.id))];next.templates=[...existing.templates,...next.templates].slice(0,12);}
   const old=this.value,required=this.recoveryRequired;this.value=validate(next);this.recoveryRequired=false;if(!this.key)this.key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);try{await this.save();}catch(e){this.value=old;this.recoveryRequired=required;throw e;}
  }
  async forget(){await this.pending?.catch(()=>{});await new Promise((resolve,reject)=>{const t=this.db.transaction('local','readwrite');t.objectStore('local').clear();t.oncomplete=resolve;t.onerror=()=>reject(t.error);});this.db.close();}

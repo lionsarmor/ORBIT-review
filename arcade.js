@@ -33,6 +33,7 @@ export class Arcade{
   if(!file)return;
   if(file.size>64*1024*1024)return this.notice('That cartridge is bigger than our spaceship! The limit is 64 MB.');
   let system,bytes;try{bytes=new Uint8Array(await file.arrayBuffer());system=detectROM(file.name,bytes);}catch(e){return this.notice(e.message);}
+  if(this.destroyed)return;
   if(this.current())return this.notice('A game is already on! Use Game options → End game before dropping the next cartridge.');
   if([...this.games.values()].some(g=>g.host===this.session.id))return this.notice('You’re hosting a cartridge in another room. End that game before starting the next one.');
   const room=this.session.room,id=this.uid(),g={id,room,host:this.session.id,system,name:file.name.slice(0,100),seats:Array(systems[system].players).fill(null),blocked:[],status:'booting',revision:0,inputs:new Map(),votes:new Map()};
@@ -201,6 +202,6 @@ export class Arcade{
  }
  dispose(room){const g=this.games.get(room);if(!g)return;clearTimeout(g.bootTimer);this.engine(g)?.stop();g.frame?.remove();if(g.host===this.session.id)this.mesh.share(null,`arcade:${room}`);this.games.delete(room);for(const key of this.streams.keys())if(key===`${g.host}:${g.streamId}`)this.streams.delete(key);this.seatsSignature='';}
  mute(value){for(const g of this.games.values())this.engine(g)?.volume(value?0:.65);}
- destroy(){this.abort.abort();clearInterval(this.timer);this.parking.remove();}
+ destroy(){this.destroyed=true;this.abort.abort();clearInterval(this.timer);this.parking.remove();}
  stop(){this.release();for(const room of [...this.games.keys()])this.dispose(room);this.streams.clear();this.parking.replaceChildren();}
 }
