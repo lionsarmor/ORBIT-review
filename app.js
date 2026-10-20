@@ -100,7 +100,7 @@ export function emit(type,data={},room=session.room){
  const event={id:uid(),actor:session.id,n:++session.clock,at:Date.now(),room,type,data};
  if(accept(event,session.id)){mesh.send({type:'event',event});return event;}
 }
-const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host','web']);
+const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host','web','web-location','web-end']);
 function accept(event,actor,snapshot=false){
  if(!event||!allowed.has(event.type)||typeof event.id!=='string'||event.id.length>40||typeof event.actor!=='string'||(!snapshot&&event.actor!==actor)||!Number.isSafeInteger(event.n)||event.n<1||event.n>1e9||!event.data||typeof event.data!=='object'||typeof event.room!=='string')return false;
  if(session.events.has(event.id))return false;
@@ -148,7 +148,9 @@ function rebuild(){
    case 'link':if(typeof d.id==='string'&&/^[A-Za-z0-9_-]{12,40}$/.test(d.id)&&!['__proto__','constructor','prototype'].includes(d.id)&&safeURL(d.url)&&!Object.hasOwn(s.links,d.id))s.links[d.id]={id:d.id,url:safeURL(d.url),title:String(d.title||'').slice(0,100),room:r,actor:e.actor,thumbnail:''};break;
    case 'link-preview':{const link=s.links[d.id];if(link?.actor===e.actor&&link.room===r&&link.url===d.url){link.thumbnail=previewImage(d.thumbnail);if(!link.title&&typeof d.title==='string')link.title=d.title.slice(0,100);}break;}
    case 'watch':if(!d.url||safeURL(d.url)||d.url.startsWith('local:'))s.watch[r]={...d,actor:e.actor,event:e.id};break;
-   case 'web':if(s.rooms[r]&&(d.url===''||webURL(d.url)))s.web[r]={url:d.url?webURL(d.url):'',actor:e.actor,event:e.id};break;
+   case 'web':if(s.rooms[r]&&(d.url===''||webURL(d.url))){const old=s.web[r];if(d.browser&&old?.event!==d.browser)break;if(d.url&&old?.kind==='shared'&&old.url)break;s.web[r]={url:d.url?webURL(d.url):'',kind:d.kind==='shared'?'shared':'local',actor:e.actor,event:e.id};}break;
+   case 'web-location':if(s.web[r]?.event===d.browser&&s.web[r].actor===e.actor&&s.web[r].url&&webURL(d.url))s.web[r].url=webURL(d.url);break;
+   case 'web-end':if(s.web[r]?.event===d.browser&&(s.web[r].actor===e.actor||s.owner===e.actor&&!session.members.has(s.web[r].actor)))s.web[r].url='';break;
    case 'profile':s.profiles[e.actor]=d;break;
   }
  }
@@ -256,7 +258,7 @@ async function forgetLounge(id){
  if(!saved)toast('Disconnected, but removing the saved lounge could not be written to this device.');
 }
 async function leave(){if(selected)await forgetLounge(selected.key);if(!selected)showWelcome();}
-window.addEventListener('pagehide',()=>{for(const l of lounges.values())l.mesh.leave();connectors.disconnectAll();});
+window.addEventListener('pagehide',()=>{for(const l of lounges.values()){l.activities.stop();l.mesh.leave();}connectors.disconnectAll();});
 function sendDM(to,text){const m={type:'dm',id:uid(),text,from:session.id,to,at:Date.now()};session.private.push(m);mesh.send(m,to);renderMessages();}
 $('#composer').onsubmit=e=>{
  e.preventDefault();const text=$('#message').value.trim();if(!text||!session.active)return;
@@ -314,10 +316,10 @@ function addQueue(schedule=false){
  $('#queue-form').onsubmit=e=>{e.preventDefault();emit('queue',{id:uid(),title:$('#q-title').value,kind:$('#q-kind').value,url:$('#q-url').value,when:schedule?new Date($('#q-time').value).getTime():0,added:Date.now(),name:session.profile.name});closeModal();};
 }
 $('#queue-add').onclick=()=>addQueue();$('#queue-schedule').onclick=()=>addQueue(true);
-$('#queue-items').onclick=e=>{
+$('#queue-items').onclick=async e=>{
  const del=e.target.closest('[data-remove]'),play=e.target.closest('[data-play]');
  if(del)emit('queue-remove',{id:del.dataset.remove});
- if(play){const q=session.state.queue[play.dataset.play];emit('activity',{mode:q.kind});if(q.url&&q.kind==='watch')activities.watch(q.url);else if(q.url&&q.kind==='web')activities.web.open(q.url);else if(q.url)activities.addLink(q.url,q.title);emit('queue-remove',{id:q.id});}
+ if(play){const q=session.state.queue[play.dataset.play],a=activities,l=current;if(!q)return;emit('activity',{mode:q.kind});if(q.kind==='web'){if(!q.url)return toast('Paste a webpage address in the Web room to start this event.');const ok=await a.web.startHosted(q.url);if(ok&&l.session.active)within(l,()=>emit('queue-remove',{id:q.id}));return;}if(q.url&&q.kind==='watch')a.watch(q.url);else if(q.url)a.addLink(q.url,q.title);emit('queue-remove',{id:q.id});}
 };
 setInterval(()=>{for(const l of lounges.values())for(const q of Object.values(l.session.state.queue||{}))if(q.when&&q.when<=Date.now()&&!l.due.has(q.id)){l.due.add(q.id);toast(`${l.session.state.name}: time for ${q.title}.`);}},10000);
 

@@ -54,6 +54,7 @@ export class Activities{
   else{const room=this.captureRoom||this.session.room;this.captureRoom=null;this.emit('watch',{url:'',title:'',playing:false},room);this.toast('Sharing stopped.');}
  }
  stream(id,stream,key='main'){
+  if(key.startsWith('web:')){this.web.stream(id,stream,key);return;}
   if(key.startsWith('arcade:')){this.arcade.stream(id,stream);return;}
   if(key==='microphone'){let a=this.voices.get(id);if(!a){a=document.createElement('audio');a.autoplay=true;document.body.append(a);this.voices.set(id,a);}a.srcObject=stream;a.muted=!this.active;a.play().catch(()=>{});return;}
   this.remoteStreams.set(id,stream);
@@ -113,7 +114,7 @@ export class Activities{
  cleanupRooms(){for(const [room,player]of this.players)if(!this.session.state.rooms[room]){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();this.players.delete(room);}if(this.captureRoom&&!this.session.state.rooms[this.captureRoom])this.publish(null);}
  watchTime(w){const offset=w.actor===this.session.id?0:(this.mesh.clockOffsets?.get(w.actor)||this.mesh.lastOffsets?.get(w.actor))?.offset;return Math.max(0,Number(w.time)||0)+(w.playing&&typeof w.stamp==='number'&&offset!==undefined?Math.max(0,(performance.now()-(w.stamp+offset))/1000):0);}
  synchronize(){
-  if(!this.session.active)return;
+  if(!this.session.active)return;this.web.synchronize();
   if(this.session.state.owner===this.session.id)for(const [room,w]of Object.entries(this.session.state.watch||{}))if(w.url&&!this.session.members.has(w.actor)){if(w.url.startsWith('local:'))this.emit('watch',{url:'',title:'Share ended',playing:false},room);else this.emit('watch',{...w,time:this.watchTime(w)},room);}
   for(const [room,video]of this.players){const w=this.session.state.watch?.[room];if(!w||video.dataset.source!==w.url||video.srcObject||w.url.startsWith('local:'))continue;
    const target=this.watchTime(w),delta=target-video.currentTime;
@@ -171,7 +172,7 @@ export class Activities{
    else{this.chessSelection=dest;this.chess();}
   };
  }
- receive(id,v){this.arcade.receive(id,v);}
+ receive(id,v){if(v.type==='web-input')this.web.receive(id,v);else this.arcade.receive(id,v);}
  controllers(){this.arcade.controllers();}
  tasks(){
   const {$,esc,session}=this;this.panel('A little progress, together',`<button id="task-add">＋ Add a task</button>`,`<div class="task-columns">${['todo','doing','done'].map(status=>`<section class="task-column"><h3>${{todo:'To do',doing:'In progress',done:'Done'}[status]}</h3>${Object.values(session.state.tasks).filter(t=>t.room===session.room&&t.status===status).map(t=>`<div class="task-card">${esc(t.title)}<select data-task="${esc(t.id)}" aria-label="Status for ${esc(t.title)}">${['todo','doing','done'].map(s=>`<option value="${s}" ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>`).join('')}</section>`).join('')}</div>`);
