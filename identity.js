@@ -12,7 +12,7 @@ export function design(d={}){
  const modes=['ambient','watch','whiteboard','chess','emulator','tasks','news'];
  const rooms=Array.isArray(d.rooms)?d.rooms.slice(0,40).map((r,i)=>({id:/^[\w-]{1,40}$/.test(r.id)&&!['__proto__','constructor','prototype'].includes(r.id)?r.id:`room-${i}`,name:text(r.name,40)||'Room',icon:text(r.icon,8),mode:modes.includes(r.mode)?r.mode:'ambient'})):[];
  if(new Set(rooms.map(r=>r.id)).size!==rooms.length)throw Error('Duplicate room IDs in design.');
- return {name:text(d.name,40)||'My lounge',logo:image(d.logo,70000),background:image(d.background),accent:/^#[a-f\d]{6}$/i.test(d.accent)?d.accent:'#d4a06c',rooms};
+ return {name:text(d.name,40)||'My lounge',logo:image(d.logo,70000),background:image(d.background),accent:d.accent===''?'':/^#[a-f\d]{6}$/i.test(d.accent)?d.accent:'#d4a06c',rooms};
 }
 export function validate(v){
  if(!v||v.format!=='orbit-id'||v.version!==1||typeof v.name!=='string'||!Array.isArray(v.lounges)||!Array.isArray(v.templates)||v.lounges.length>50||v.templates.length>12)throw Error('This is not a supported ORBIT ID card.');

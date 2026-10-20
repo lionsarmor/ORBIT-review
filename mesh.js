@@ -21,7 +21,7 @@ export class Mesh extends EventTarget {
   if(create){token={v:1,r:b64(random(18)),k:b64(random(32))};code=b64(enc.encode(JSON.stringify(token)));}
   else{try{const raw=code.includes('#')?code.split('#').at(-1):code;token=JSON.parse(dec.decode(bytes(raw)));code=raw;}catch{throw Error('That invite code is not valid.');}}
   if(token.v!==1||!/^[-\w]{24}$/.test(token.r)||!/^[-\w]{43}$/.test(token.k))throw Error('Invalid invite.');
-  this.id=b64(random(16));this.room=token.r;this.code=code;this.profile=profile;this.closed=false;this.sequence=0;this.privacy=privacy;
+  this.id=b64(random(16));this.room=token.r;this.code=code;this.signalPeers=new Set();this.profile=profile;this.closed=false;this.sequence=0;this.privacy=privacy;
   this.secret=await crypto.subtle.importKey('raw',bytes(token.k),'AES-GCM',false,['encrypt','decrypt']);
   this.identity=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveKey']);
   this.publicKey=b64(new Uint8Array(await crypto.subtle.exportKey('raw',this.identity.publicKey)));
@@ -34,7 +34,7 @@ export class Mesh extends EventTarget {
   this.timing=setInterval(()=>{for(const id of this.peers.keys())this.send({type:'clock-ping',at:performance.now()},id);},4000);
   return new Promise((resolve,reject)=>{
    const cleanup=()=>{clearTimeout(t);this.removeEventListener('ready',ready);this.removeEventListener('fatal',fatal);};
-   const ready=()=>{cleanup();resolve({code,id:this.id});};
+   const ready=e=>{cleanup();resolve({code,id:this.id,fresh:e.detail.fresh===true});};
    const fatal=e=>{cleanup();this.leave();reject(Error(e.detail));};
    const t=setTimeout(()=>{cleanup();this.leave();reject(Error('Joining timed out.'));},12000);
    this.addEventListener('ready',ready,{once:true});this.addEventListener('fatal',fatal,{once:true});
@@ -56,9 +56,9 @@ export class Mesh extends EventTarget {
  async signal(v){
   if(this.closed)return;
   if(v.kind==='error'){if(this.readyOnce){if(this.reconnecting&&/ended or is unavailable/.test(v.error)&&!this.recreateTried){this.recreateTried=true;const old=this.ws;this.ws=null;old?.close();this.connectSignal(true);}else{this.recreateTried=false;const old=this.ws;this.ws=null;old?.close();this.reconnect();}}else this.emit('fatal',v.error);return;}
-  if(v.kind==='welcome'){const recovered=this.readyOnce;this.readyOnce=true;this.reconnecting=false;this.recreateTried=false;clearTimeout(this.retryTimer);this.emit(recovered?'recovered':'ready',{});this.emit('connection',{state:'connected'});for(const id of v.peers)await this.hello(id);return;}
-  if(v.kind==='peer-joined'){await this.hello(v.id);return;}
-  if(v.kind==='peer-left'){const p=this.peers.get(v.id);if(p){clearTimeout(p.departure);p.departure=setTimeout(()=>{if(p.dc?.readyState!=='open')this.drop(v.id);},2000);}return;}
+  if(v.kind==='welcome'){this.signalPeers=new Set(v.peers);const recovered=this.readyOnce;this.readyOnce=true;this.reconnecting=false;this.recreateTried=false;clearTimeout(this.retryTimer);this.emit(recovered?'recovered':'ready',{fresh:v.fresh===true});this.emit('connection',{state:'connected'});for(const id of v.peers)await this.hello(id);return;}
+  if(v.kind==='peer-joined'){this.signalPeers.add(v.id);await this.hello(v.id);return;}
+  if(v.kind==='peer-left'){this.signalPeers.delete(v.id);if(!this.signalPeers.size&&![...this.peers.values()].some(p=>p.dc?.readyState==='open'))this.emit('vacant',{});const p=this.peers.get(v.id);if(p){clearTimeout(p.departure);p.departure=setTimeout(()=>{if(p.dc?.readyState!=='open')this.drop(v.id);},2000);}return;}
   if(v.kind!=='signal'||!v.from)return;
   const value=await open(this.secret,v,`${this.room}:${v.from}:${this.id}`);
   if(value.type==='hello'){

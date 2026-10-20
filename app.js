@@ -65,9 +65,15 @@ export async function enter(create,input=$('#join-code').value,template=null){
   joinKey=joinKey||uid();joining.add(joinKey);joiningHere=true;$('#entry-status').textContent='Connecting…';await init();const l=context();l.session.privacy=identity.value.settings['orbit.privacy']||homeContext.session.privacy||selected?.session.privacy||'direct';
   try{const result=await l.mesh.start(input,create,{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'},l.session.privacy);Object.assign(l.session,{active:true,id:result.id,name,profile:{name,avatar:identity.value.avatar,about:identity.value.about,status:'Here'}});l.session.members.set(result.id,l.session.profile);l.key=l.mesh.room;lounges.set(l.key,l);l.status='connected';
    if(create){saved={id:l.key,code:result.code,name:template?.name||'Tonight',logo:template?.logo||'',alias:'',auto:false,design:template||null};identity.value.lounges.push(saved);}
-   l.saved=saved;activate(l);if(create)within(l,()=>{emit('space',{name:saved.name});if(template)emit('design',design(template));});else within(l,()=>{rebuild();render();});saveIdentity();$('#join-code').value='';$('#lounge-code').value='';$('#entry-status').textContent='Your ID is saved on this device.';
+   l.saved=saved;activate(l);if(create||result.fresh)initializeLounge(l,template);else within(l,()=>{rebuild();render();});saveIdentity();$('#join-code').value='';$('#lounge-code').value='';$('#entry-status').textContent='Your ID is saved on this device.';
   }catch(e){l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();throw e;}
- }catch(e){if(saved)saved.state=/ended/.test(e.message)?'ended':'unknown';$('#entry-status').textContent=e.message;toast(e.message);renderHub();}finally{if(joiningHere){joining.delete(joinKey);renderHub();}}
+ }catch(e){if(saved)saved.state='unknown';$('#entry-status').textContent=e.message;toast(e.message);renderHub();}finally{if(joiningHere){joining.delete(joinKey);renderHub();}}
+}
+// A reusable invitation opens an empty visit; only local appearance is restored.
+function initializeLounge(l,template=null){
+ if(!l.session.active||l.session.state.owner)return;
+ const layout=design(template||l.saved.design||{name:l.saved.name==='Invited lounge'?'Tonight':l.saved.name,logo:l.saved.logo,accent:'',rooms:defaultRooms});
+ within(l,()=>{emit('space',{name:layout.name});emit('design',layout);});
 }
 export function activate(l){
  if(selected){selected.session.drafts.set(selected.session.dm||selected.session.room,$('#message').value);selected.activities.deactivate();}
@@ -76,7 +82,7 @@ export function activate(l){
  $('#start-watch').textContent=l?'Find something to watch ↗':'Create or join a lounge ↗';renderHub();applyLoungeDesign();
 }
 // Deterministically ordered operations converge after concurrent edits and late joins.
-// The log is capped in memory; no room data is put in localStorage/IndexedDB.
+// The live operation log stays in memory; only allowlisted design metadata is saved.
 export function emit(type,data={},room=session.room){
  if(!session.active)return toast('Create or join a space first.');
  if(type==='watch')data={...data,stamp:performance.now()};
@@ -106,15 +112,15 @@ function acceptTimeline(actor,tick){
 }
 function sendTimeline(room,values){const w=session.state.watch?.[room];if(!w||w.actor!==session.id)return;const tick={type:'watch-tick',room,control:w.event,time:values.time,playing:values.playing,stamp:performance.now()};acceptTimeline(session.id,tick);mesh.send(tick);}
 function rebuild(){
- const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},chess:{},rom:{},games:{},watch:{},profiles:{},owner:'',logo:'',background:'',accent:''};
+ const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},savedRooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),chess:{},rom:{},games:{},watch:{},profiles:{},owner:'',logo:'',background:'',accent:''};
  const ordered=[...session.events.values()].sort((a,b)=>a.n-b.n||a.actor.localeCompare(b.actor)||a.id.localeCompare(b.id));
  for(const e of ordered){
   const d=e.data,r=e.room;
   switch(e.type){
    case 'space':if(!s.owner){s.name=String(d.name||'Tonight').slice(0,40);s.owner=e.actor;}break;
    case 'owner':if(s.owner===d.previous&&(e.actor===d.previous||e.actor===d.next&&!session.members.has(d.previous)))s.owner=d.next;break;
-   case 'design':if(e.actor===s.owner){try{const value=design(d);if(value.rooms.length){const old=s.rooms;s.rooms=Object.fromEntries(value.rooms.map(r=>[r.id,{...r}]));}Object.assign(s,{name:value.name,logo:value.logo,background:value.background,accent:value.accent});}catch{}}break;
-   case 'room':if(e.actor===s.owner&&typeof d.name==='string'&&Object.keys(s.rooms).length<40)s.rooms[d.id]={id:d.id,name:d.name.slice(0,40),mode:'ambient'};break;
+   case 'design':if(e.actor===s.owner){try{const value=design(d);if(value.rooms.length){const old=s.rooms;s.rooms=Object.fromEntries(value.rooms.map(r=>[r.id,{...r}]));s.savedRooms=Object.fromEntries(value.rooms.map(r=>[r.id,{...r}]));}Object.assign(s,{name:value.name,logo:value.logo,background:value.background,accent:value.accent});}catch{}}break;
+   case 'room':if(e.actor===s.owner&&typeof d.name==='string'&&Object.keys(s.rooms).length<40){const room={id:d.id,name:d.name.slice(0,40),mode:'ambient'};s.rooms[d.id]={...room};s.savedRooms[d.id]=room;}break;
    case 'activity':if(s.rooms[r]&&icons[d.mode])s.rooms[r].mode=d.mode;break;
    case 'message':if(typeof d.text==='string'&&d.text.length<=4000)s.messages.push(e);break;
    case 'reaction':if(typeof d.emoji==='string'&&d.emoji.length<10){s.reactions[d.message]??={};s.reactions[d.message][e.actor]=d.emoji;}break;
@@ -166,7 +172,7 @@ l.mesh.addEventListener('data',e=>within(l,()=>{
  }else activities.receive(id,v);
 }));
 l.mesh.addEventListener('error',e=>toast(e.detail));
-l.mesh.addEventListener('ended',()=>leaveLounge(l));
+l.mesh.addEventListener('vacant',()=>initializeLounge(l));
 l.mesh.addEventListener('stream',e=>l.activities.stream(e.detail.id,e.detail.stream,e.detail.key));
 l.mesh.addEventListener('connection',e=>{l.status=e?.detail?.state==='peer-only'?'peer only':l.mesh.reconnecting?'reconnecting':'connected';if(selected===l)renderStatus();renderHub();});
 l.mesh.addEventListener('recovered',()=>within(l,()=>{for(const id of l.mesh.peers.keys())l.mesh.send({type:'snapshot',events:[...l.session.events.values()]},id);render();}));
@@ -217,7 +223,7 @@ $('#start-watch').onclick=()=>selected?activities.shareDialog():showWelcome();
 $('#share').onclick=()=>activities.shareDialog();
 $('#invite').onclick=()=>{
  const link=new URL(`#${mesh.code}`,appBase).href;
- modal('Bring your people',`<p>Anyone with this code can join while the space is alive. Share it privately.</p><label>Invitation link<textarea id="invite-value" rows="4" readonly>${esc(link)}</textarea></label><button id="copy-invite" class="primary wide">Copy invitation</button><div class="notice" style="margin-top:16px">Up to 8 people in this first build. Friends need to reach this app’s address. ${['localhost','127.0.0.1'].includes(location.hostname)?'A localhost link only works on this computer.':'This link uses the live review connection helper.'}</div>`);
+ modal('Bring your people',`<p>Anyone with this code can join or reopen this lounge. Share it privately. When everyone leaves, chat and live activities are cleared.</p><label>Invitation link<textarea id="invite-value" rows="4" readonly>${esc(link)}</textarea></label><button id="copy-invite" class="primary wide">Copy invitation</button><div class="notice" style="margin-top:16px">Up to 8 people in this first build. Friends need to reach this app’s address. ${['localhost','127.0.0.1'].includes(location.hostname)?'A localhost link only works on this computer.':'This link uses the live review connection helper.'}</div>`);
  $('#copy-invite').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Invitation copied.');}catch{$('#invite-value').select();toast('Select and copy the invitation.');}};
 };
 $('#leave').onclick=()=>leave();
@@ -227,7 +233,16 @@ export function leaveLounge(l=selected){
  l.mesh.leave();l.activities.stop();l.activities.arcade.destroy();l.session.active=false;l.session.events.clear();l.session.private=[];l.watchTicks.clear();l.session.drafts.clear();l.session.members.clear();lounges.delete(l.key);if(l.saved)l.saved.state='saved';
  if(selected===l)activate(null);renderHub();
 }
-function leave(){leaveLounge();if(!selected)showWelcome();}
+async function forgetLounge(id){
+ const l=lounges.get(id);
+ identity.value.lounges=identity.value.lounges.filter(entry=>entry.id!==id);
+ const saving=saveIdentity();
+ if(l){leaveLounge(l);l.saved=null;}
+ renderHub();
+ const saved=await saving;
+ if(!saved)toast('Disconnected, but removing the saved lounge could not be written to this device.');
+}
+async function leave(){if(selected)await forgetLounge(selected.key);if(!selected)showWelcome();}
 window.addEventListener('pagehide',()=>{for(const l of lounges.values())l.mesh.leave();connectors.disconnectAll();});
 function sendDM(to,text){const m={type:'dm',id:uid(),text,from:session.id,to,at:Date.now()};session.private.push(m);mesh.send(m,to);renderMessages();}
 $('#composer').onsubmit=e=>{
@@ -334,8 +349,9 @@ soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';
 window.addEventListener('keydown',e=>{if(e.key==='F7'){e.preventDefault();settings();}if(e.key==='Escape'&&!$('#modal').open)closeMobileSidebar();});
 
 function rememberDesign(l){
- if(!l?.saved||!l.session.state.name)return;const state=l.session.state,entry=l.saved;
- if(entry.name!==state.name||entry.logo!==state.logo){entry.name=state.name;entry.logo=state.logo||'';saveIdentity();}
+ if(!l?.saved||!l.session.state.owner)return;const state=l.session.state,entry=l.saved;
+ const layout=design({...state,rooms:Object.values(state.savedRooms||state.rooms)});
+ if(JSON.stringify(entry.design)!==JSON.stringify(layout)){entry.name=layout.name;entry.logo=layout.logo;entry.design=layout;saveIdentity();}
 }
 function applyLoungeDesign(){
  const d=selected?.session.state,stage=$('#stage');if(d?.accent){document.documentElement.style.setProperty('--accent',d.accent);const rgb=d.accent.slice(1).match(/../g).map(x=>parseInt(x,16));document.documentElement.style.setProperty('--accentText',rgb[0]*.299+rgb[1]*.587+rgb[2]*.114<140?'#fff':'#201509');}else{document.documentElement.style.removeProperty('--accent');document.documentElement.style.removeProperty('--accentText');}
@@ -356,11 +372,11 @@ function renderHub(){
 }
 function savedOptions(id){
  const entry=identity.value.lounges.find(e=>e.id===id);if(!entry)return;const l=lounges.get(id);
- modal('Saved lounge',`<p>${esc(entry.name)}</p><label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button>':'<button id="saved-open">Try joining</button>'}<button id="saved-forget" class="danger">${l?'Leave and forget':'Forget invitation'}</button><button id="saved-left">Move left</button></div><p>A saved code does not restore an ended lounge. A connection failure may just mean the helper is unreachable.</p>`);
+ modal('Saved lounge',`<p>${esc(entry.name)}</p><label>Your private nickname<input id="lounge-alias" maxlength="40" value="${esc(entry.alias)}"></label><label class="toggle-row">Reconnect when ORBIT opens<input id="lounge-auto" type="checkbox" ${entry.auto?'checked':''}></label><div class="button-group"><button id="saved-apply">Save</button>${l?'<button id="saved-leave">Leave this lounge</button><button id="saved-retry">Retry connection</button>':'<button id="saved-open">Try joining</button>'}${l?'':'<button id="saved-forget" class="danger">Forget invitation</button>'}<button id="saved-left">Move left</button></div><p>Closing ORBIT keeps this lounge in your ID. Leave removes its saved code and design from this ID. Anyone who kept their code can reopen an empty lounge; old chat and activities do not return.</p>`);
  $('#saved-apply').onclick=()=>{entry.alias=$('#lounge-alias').value.trim();entry.auto=$('#lounge-auto').checked;saveIdentity();closeModal();renderHub();};
  $('#saved-retry')?.addEventListener('click',()=>{l.mesh.retry();closeModal();});
- $('#saved-leave')?.addEventListener('click',()=>{leaveLounge(l);closeModal();});$('#saved-open')?.addEventListener('click',()=>{closeModal();enter(false,entry.code);});
- $('#saved-forget').onclick=()=>{if(l)leaveLounge(l);identity.value.lounges=identity.value.lounges.filter(e=>e!==entry);saveIdentity();closeModal();renderHub();};
+ $('#saved-leave')?.addEventListener('click',async()=>{await forgetLounge(id);closeModal();});$('#saved-open')?.addEventListener('click',()=>{closeModal();enter(false,entry.code);});
+ $('#saved-forget')?.addEventListener('click',async()=>{await forgetLounge(id);closeModal();});
  $('#saved-left').onclick=()=>{const i=identity.value.lounges.indexOf(entry);if(i>0){identity.value.lounges.splice(i,1);identity.value.lounges.splice(i-1,0,entry);saveIdentity();renderHub();}};
 }
 $('#new-lounge').onclick=showWelcome;$('#welcome-close').onclick=()=>$('#welcome').close();$('#library-close').onclick=()=>$('#lounge-library').close();
