@@ -1,4 +1,5 @@
 import {Mesh,b64,bytes,random} from './mesh.js';
+import {previewImage} from './link-preview.js';
 import init,{chess_state,chess_play,chess_computer,Chip8} from './pkg/orbit_core.js';
 import {Activities} from './activities.js';
 import {Connectors} from './connectors.js';
@@ -82,7 +83,7 @@ export function emit(type,data={},room=session.room){
  const event={id:uid(),actor:session.id,n:++session.clock,at:Date.now(),room,type,data};
  if(accept(event,session.id)){mesh.send({type:'event',event});return event;}
 }
-const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','watch','profile','game','design','owner','game-standby','game-host']);
+const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','link-preview','watch','profile','game','design','owner','game-standby','game-host']);
 function accept(event,actor,snapshot=false){
  if(!event||!allowed.has(event.type)||typeof event.id!=='string'||event.id.length>40||typeof event.actor!=='string'||(!snapshot&&event.actor!==actor)||!Number.isSafeInteger(event.n)||event.n<1||event.n>1e9||!event.data||typeof event.data!=='object'||typeof event.room!=='string')return false;
  if(session.events.has(event.id))return false;
@@ -127,7 +128,8 @@ function rebuild(){
    case 'game-host':if(s.games[r]?.id===d.id&&s.games[r].host===d.previous&&(e.actor===d.previous||e.actor===s.games[r].standby&&!session.members.has(d.previous))){s.games[r].host=d.next;s.games[r].standby=null;}break;
    case 'rom':if(typeof d.rom==='string'&&d.rom.length<5000)s.rom[r]={...d,actor:e.actor,event:e.id};break;
    case 'task':if(typeof d.title==='string'&&['todo','doing','done'].includes(d.status))s.tasks[d.id]={...d,room:r};break;
-   case 'link':if(safeURL(d.url))s.links[d.id]={...d,room:r};break;
+   case 'link':if(typeof d.id==='string'&&/^[A-Za-z0-9_-]{12,40}$/.test(d.id)&&!['__proto__','constructor','prototype'].includes(d.id)&&safeURL(d.url)&&!Object.hasOwn(s.links,d.id))s.links[d.id]={id:d.id,url:safeURL(d.url),title:String(d.title||'').slice(0,100),room:r,actor:e.actor,thumbnail:''};break;
+   case 'link-preview':{const link=s.links[d.id];if(link?.actor===e.actor&&link.room===r&&link.url===d.url){link.thumbnail=previewImage(d.thumbnail);if(!link.title&&typeof d.title==='string')link.title=d.title.slice(0,100);}break;}
    case 'watch':if(!d.url||safeURL(d.url)||d.url.startsWith('local:'))s.watch[r]={...d,actor:e.actor,event:e.id};break;
    case 'profile':s.profiles[e.actor]=d;break;
   }
@@ -232,7 +234,7 @@ $('#composer').onsubmit=e=>{
  e.preventDefault();const text=$('#message').value.trim();if(!text||!session.active)return;
  if(session.dm)sendDM(session.dm,text);else{
   emit('message',{text,name:session.profile.name});
-  const urls=text.match(/https?:\/\/\S+/g)||[];for(const u of urls.slice(0,1))activities.postedVideo(u);
+  const urls=text.match(/https?:\/\/\S+/g)||[];for(const u of urls.slice(0,1)){if(session.state.rooms[session.room]?.mode==='news')activities.addLink(u);else activities.postedVideo(u);}
  }
  $('#message').value='';session.drafts.delete(draftKey());wakeChat();$('#messages').scrollTop=$('#messages').scrollHeight;
 };
@@ -287,7 +289,7 @@ $('#queue-add').onclick=()=>addQueue();$('#queue-schedule').onclick=()=>addQueue
 $('#queue-items').onclick=e=>{
  const del=e.target.closest('[data-remove]'),play=e.target.closest('[data-play]');
  if(del)emit('queue-remove',{id:del.dataset.remove});
- if(play){const q=session.state.queue[play.dataset.play];emit('activity',{mode:q.kind});if(q.url&&q.kind==='watch')activities.watch(q.url);else if(q.url)emit('link',{id:uid(),title:q.title,url:q.url});emit('queue-remove',{id:q.id});}
+ if(play){const q=session.state.queue[play.dataset.play];emit('activity',{mode:q.kind});if(q.url&&q.kind==='watch')activities.watch(q.url);else if(q.url)activities.addLink(q.url,q.title);emit('queue-remove',{id:q.id});}
 };
 setInterval(()=>{for(const l of lounges.values())for(const q of Object.values(l.session.state.queue||{}))if(q.when&&q.when<=Date.now()&&!l.due.has(q.id)){l.due.add(q.id);toast(`${l.session.state.name}: time for ${q.title}.`);}},10000);
 
@@ -371,14 +373,14 @@ $('#template-list').onclick=e=>{const create=e.target.closest('[data-template-cr
 $('#lounge-options').onclick=()=>selected&&savedOptions(selected.key);
 function download(text,name){const u=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 function identityDialog(){
- modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations, but never chat, ROMs or live session keys.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Encrypted backups stay in your files. Importing is not an upload to the helper.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
+ modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations, but never chat, ROMs or live session keys.</p><p>For export, choose a new backup passphrase below. For import, enter the passphrase used when that file was exported. This is separate from a RODDY or service login; creating a lounge does not create a passphrase.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="Export: choose one · Import: use the original"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Forgot an old backup’s passphrase? If your ID is loaded here, choose a new one and export a fresh backup. ORBIT does not store backup passphrases.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
  $('#id-avatar').onclick=()=>$('#id-avatar-file').click();$('#id-avatar-file').onchange=async e=>{try{const value=await readImage(e.target.files[0],128);identity.value.avatar=value;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile.avatar=value;emit('profile',session.profile);});identityDialog();}catch(error){toast(error.message);}};
  $('#id-export').onclick=async()=>{try{for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))identity.value.settings[key]=localStorage.getItem(key);download(await identity.export($('#id-passphrase').value),'ORBIT.orbit-id');$('#id-status').textContent='Encrypted ID exported. Keep its passphrase separately.';}catch(e){$('#id-status').textContent=e.message;}};
  wireIdentityImport();
  $('#id-delete').onclick=()=>{modal('Delete local ID?',`<p>This leaves all live lounges and removes this device’s ID, invitations, designs and ORBIT preferences. Exported backup files are separate.</p><button id="id-delete-confirm" class="danger wide">Delete ID and leave all lounges</button>`);$('#id-delete-confirm').onclick=async()=>{for(const l of [...lounges.values()])leaveLounge(l);await identity.forget();for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);location.reload();};};
 }
 function importIdentityDialog(){
- modal('Import your ID card',`<p>Bring your name, avatar and saved lounges with you.</p><label>Card passphrase<input id="id-passphrase" type="password" autocomplete="current-password" placeholder="The passphrase used when exporting"></label><button id="id-import" class="primary wide">Choose ID card…</button><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Your card is opened on this device.</p>`);wireIdentityImport();
+ modal('Import your ID card',`<p>Use the passphrase chosen when this backup was exported. It is not your lounge code or RODDY login password. Bring your name, avatar and saved lounges with you.</p><label>Card passphrase<input id="id-passphrase" type="password" autocomplete="current-password" placeholder="The passphrase used when exporting"></label><button id="id-import" class="primary wide">Choose ID card…</button><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Your card is opened on this device.</p>`);wireIdentityImport();
 }
 function wireIdentityImport(){
  $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();returnToWelcome=false;closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};

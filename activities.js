@@ -1,9 +1,10 @@
 import {Arcade} from './arcade.js';
+import {fetchPreview,previewImage} from './link-preview.js';
 export class Activities{
  constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
  resetView(){this.arcade.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
  deactivate(){this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
- stop(){clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
+ stop(){for(const controller of this.pendingPreviews||[])controller.abort();this.pendingPreviews?.clear();clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
  setBackgroundOnly(value){this.backgroundOnly=value;this.render(this.session.state.rooms[this.session.room]?.mode||'ambient','view');}
  render(mode,reason){
   if(!this.active)return;this.arcade.mute(false);for(const a of this.voices.values())a.muted=false;
@@ -19,7 +20,7 @@ export class Activities{
   if(view==='chess'){if(changed||reason==='chess')this.chess();return;}
   if(view==='emulator'){if(changed)this.arcade.show();else this.arcade.updateView();return;}
   if(view==='tasks'){if(changed||reason==='task')this.tasks();return;}
-  if(view==='news'){if(changed||reason==='link')this.links();}
+  if(view==='news'){if(changed||reason==='link'||reason==='link-preview')this.links();}
  }
  panel(title,tools,body){this.$('#activity-content').innerHTML=`<section class="activity-panel"><div class="activity-toolbar"><h2>${title}</h2>${tools}</div>${body}</section>`;}
  shareDialog(){
@@ -176,7 +177,17 @@ export class Activities{
  }
  links(){
   const {$,esc,session}=this;const links=Object.values(session.state.links).filter(l=>l.room===session.room);
-  this.panel('Worth a look',`<button id="link-add">＋ Add a link</button>`,links.length?links.map(l=>`<a class="link-card" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.title||new URL(l.url).hostname)} ↗<p>${esc(l.url)}</p></a>`).join(''):'<div class="empty-state">A shared shelf for articles, music, useful tools, and things to come back to while you’re here.</div>');
-  $('#link-add').onclick=()=>{this.modal('Something worth sharing',`<form id="link-form"><label>Title<input id="link-title" maxlength="100"></label><label>URL<input id="link-url" type="url" required></label><button class="primary wide">Share link</button></form>`);$('#link-form').onsubmit=e=>{e.preventDefault();const url=this.safeURL($('#link-url').value);if(url){this.emit('link',{id:this.uid(),title:$('#link-title').value,url});this.closeModal();}};};
+  this.panel('Worth a look',`<button id="link-add">＋ Add a link</button>`,links.length?links.map(l=>{const thumb=previewImage(l.thumbnail);return `<a class="link-card" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><span class="link-copy"><small>${esc(new URL(l.url).hostname)}</small><strong>${esc(l.title||new URL(l.url).hostname)} <span aria-hidden="true">↗</span></strong><span class="link-url">${esc(l.url)}</span></span><span class="link-thumbnail"><span class="link-placeholder" aria-label="No preview image"><span aria-hidden="true">↗</span><small>LINK</small></span>${thumb?`<img src="${thumb}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`:''}</span></a>`;}).join(''):'<div class="empty-state">A shared shelf for articles, music, useful tools, and things to come back to while you’re here.</div>');
+  document.querySelectorAll('.link-thumbnail img').forEach(img=>{img.onload=()=>{img.previousElementSibling.hidden=true;};img.onerror=()=>{img.remove();};});
+  $('#link-add').onclick=()=>{this.modal('Something worth sharing',`<form id="link-form"><label>Title (optional)<input id="link-title" maxlength="100"></label><label>URL<input id="link-url" type="url" required></label><button class="primary wide">Share link</button><p>ORBIT’s helper fetches the public page for a thumbnail. No preview history is kept. Sites without an available image get a simple link tile.</p></form>`);$('#link-form').onsubmit=e=>{e.preventDefault();const url=this.safeURL($('#link-url').value);if(url){this.addLink(url,$('#link-title').value);this.closeModal();}};};
+ }
+ addLink(url,title='',room=this.session.room){
+  url=this.safeURL(url);if(!url)return;
+  const id=this.uid();if(!this.emit('link',{id,title,url},room))return;
+  const controller=new AbortController();this.pendingPreviews??=new Set();this.pendingPreviews.add(controller);
+  const timeout=setTimeout(()=>controller.abort(),12000);
+  fetchPreview(url,controller.signal).then(value=>{
+   if(!controller.signal.aborted&&this.session.active&&value&&(value.title||value.thumbnail))this.emit('link-preview',{id,url,...value},room);
+  }).catch(()=>{}).finally(()=>{clearTimeout(timeout);this.pendingPreviews.delete(controller);});
  }
 }
