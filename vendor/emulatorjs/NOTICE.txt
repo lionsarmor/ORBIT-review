@@ -1,0 +1,27 @@
+ORBIT cartridge player — EmulatorJS 4.2.3
+
+EmulatorJS copyright Ethan O’Brien and contributors. GPL-3.0-or-later.
+Unmodified upstream scripts, styles, decompression tools and selected prebuilt
+cores come from the official v4.2.3 release:
+https://github.com/EmulatorJS/EmulatorJS/releases/tag/v4.2.3
+Frontend source and build instructions:
+https://github.com/EmulatorJS/EmulatorJS/tree/e150dc0491ae747028919fb82d6598954976ede6
+Core / RetroArch source and build system:
+https://github.com/EmulatorJS/build
+https://github.com/EmulatorJS/RetroArch
+
+See COPYING and licenses/<core>/license.txt. Each core retains its own
+license conditions. Snes9x includes noncommercial distribution conditions.
+Stella 2014’s license is provided separately from the upstream core source.
+No commercial ROMs, console firmware or BIOS files are bundled.
+Core source repositories:
+  fceumm: https://github.com/EmulatorJS/libretro-fceumm
+  snes9x: https://github.com/EmulatorJS/snes9x
+  mupen64plus_next: https://github.com/EmulatorJS/mupen64plus-libretro-nx
+  picodrive: https://github.com/EmulatorJS/picodrive
+  stella2014: https://github.com/EmulatorJS/stella2014-libretro
+
+The ORBIT adapter source at ../../arcade-engine.js and ../../arcade-engine.html
+is licensed GPL-3.0-or-later. It disables database/save persistence and routes
+controllers through the room’s player seats. The upstream files here are
+unmodified. SHA256SUMS.json records the upstream files in this distribution.

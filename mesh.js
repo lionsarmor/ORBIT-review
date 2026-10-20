@@ -12,7 +12,7 @@ async function open(key,value,aad=''){
  return JSON.parse(dec.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(value.iv),additionalData:enc.encode(aad)},key,bytes(value.cipher))));
 }
 export class Mesh extends EventTarget {
- constructor(){super();this.peers=new Map();this.sequence=0;this.closed=true;this.stream=null;}
+ constructor(){super();this.peers=new Map();this.sequence=0;this.closed=true;this.stream=null;this.mediaStreams=new Map();}
  emit(type,detail){this.dispatchEvent(new CustomEvent(type,{detail}));}
  async start(code,create,profile,privacy='direct'){
   if(!crypto.subtle)throw Error('Open ORBIT on localhost or an HTTPS address.');
@@ -57,11 +57,11 @@ export class Mesh extends EventTarget {
    const key=await crypto.subtle.importKey('raw',bytes(value.key),{name:'ECDH',namedCurve:'P-256'},false,[]);
    const pair=await crypto.subtle.deriveKey({name:'ECDH',public:key},this.identity.privateKey,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
    const pc=new RTCPeerConnection({iceServers:this.iceServers,iceTransportPolicy:this.privacy==='relay'?'relay':'all'});
-   const p={pc,key:pair,profile:value.profile,last:0,sendChain:Promise.resolve(),receiveChain:Promise.resolve(),candidates:[],chunks:new Map(),makingOffer:false,answerPending:false,ignoreOffer:false,polite:this.id>v.from};
+   const p={pc,key:pair,profile:value.profile,last:0,sendChain:Promise.resolve(),receiveChain:Promise.resolve(),candidates:[],chunks:new Map(),mediaNames:new Map(),incomingStreams:new Map(),makingOffer:false,answerPending:false,ignoreOffer:false,polite:this.id>v.from};
    this.peers.set(v.from,p);
    pc.onicecandidate=e=>{if(e.candidate)this.sendSignal(v.from,{type:'ice',candidate:e.candidate}).catch(()=>{});};
    pc.ondatachannel=e=>this.channel(v.from,e.channel);
-   pc.ontrack=e=>this.emit('stream',{id:v.from,stream:e.streams[0]||new MediaStream([e.track])});
+   pc.ontrack=e=>{const stream=e.streams[0]||new MediaStream([e.track]);if(p.incomingStreams.size>=16&&!p.incomingStreams.has(stream.id))return;p.incomingStreams.set(stream.id,stream);const key=p.mediaNames.get(stream.id);if(key)this.emit('stream',{id:v.from,stream,key});};
    pc.onconnectionstatechange=()=>{this.emit('connection',{id:v.from,state:pc.connectionState});if(pc.connectionState==='failed'){this.emit('error','A direct peer connection failed. Configure TURN for restrictive networks.');pc.close();this.peers.delete(v.from);this.emit('left',v.from);}};
    // One negotiation path for initial channels, media and ICE renewal.
    // Polite-peer rollback resolves simultaneous offers (WebRTC perfect negotiation).
@@ -72,7 +72,7 @@ export class Mesh extends EventTarget {
    };
    pc.onsignalingstatechange=()=>{if(pc.signalingState==='stable'&&p.pendingIce){const servers=p.pendingIce;p.pendingIce=null;pc.setConfiguration({...pc.getConfiguration(),iceServers:servers});pc.restartIce();}};
    if(this.id<v.from)this.channel(v.from,pc.createDataChannel('orbit',{ordered:true}));
-   if(this.stream)for(const track of this.stream.getTracks())pc.addTrack(track,this.stream);
+   for(const stream of this.mediaStreams.values())for(const track of stream.getTracks())pc.addTrack(track,stream);
    return;
   }
   const p=this.peers.get(v.from);if(!p)return;
@@ -103,7 +103,7 @@ export class Mesh extends EventTarget {
  async sendSignal(to,value){if(this.closed)return;const data=await seal(this.secret,value,`${this.room}:${this.id}:${to}`);if(this.ws?.readyState===1)this.ws.send(JSON.stringify({to,...data}));}
  channel(id,dc){
   const p=this.peers.get(id);p.dc=dc;
-  dc.onopen=()=>this.emit('joined',{id,profile:p.profile});
+  dc.onopen=()=>{for(const [key,stream]of this.mediaStreams)this.send({type:'media-stream',key,stream:stream.id},id);this.emit('joined',{id,profile:p.profile});};
   dc.onmessage=e=>{p.receiveChain=p.receiveChain.then(async()=>{
    const packet=await open(p.key,JSON.parse(e.data),`${this.room}:${id}:${this.id}`);
    if(!Number.isSafeInteger(packet.seq)||packet.seq<=p.last)return;p.last=packet.seq;
@@ -111,9 +111,9 @@ export class Mesh extends EventTarget {
     const c=packet.chunk;if(c.total>512||c.total<1||c.index<0||c.index>=c.total||c.text.length>8000)return;
     let batch=p.chunks.get(c.id);if(!batch){if(p.chunks.size>3)return;batch={parts:[],total:c.total,at:Date.now()};p.chunks.set(c.id,batch);}
     batch.parts[c.index]=c.text;
-    if(batch.parts.filter(x=>typeof x==='string').length===batch.total){p.chunks.delete(c.id);this.emit('data',{id,value:JSON.parse(batch.parts.join(''))});}
+    if(batch.parts.filter(x=>typeof x==='string').length===batch.total){p.chunks.delete(c.id);this.deliver(id,JSON.parse(batch.parts.join('')));}
     for(const[k,b]of p.chunks)if(Date.now()-b.at>10000)p.chunks.delete(k);
-   }else this.emit('data',{id,value:packet.value});
+   }else this.deliver(id,packet.value);
   }).catch(()=>this.emit('error','Rejected an invalid peer packet.'));};
   dc.onclose=()=>this.emit('connection',{id,state:'disconnected'});
  }
@@ -132,12 +132,22 @@ export class Mesh extends EventTarget {
    }).catch(e=>this.emit('error',e.message));
   }
  }
- async share(stream){
-  this.stream=stream;
-  for(const[id,p]of this.peers){
-   for(const s of p.pc.getSenders())if(s.track)p.pc.removeTrack(s);
+ deliver(id,value){
+  if(value?.type==='media-stream'){
+   if(typeof value.key!=='string'||value.key.length>100||typeof value.stream!=='string'||value.stream.length>100)return;
+   const p=this.peers.get(id);if(!p)return;for(const [old,key]of p.mediaNames)if(key===value.key&&old!==value.stream){p.mediaNames.delete(old);p.incomingStreams.delete(old);}if(p.mediaNames.size>=16&&!p.mediaNames.has(value.stream))return;
+   p.mediaNames.set(value.stream,value.key);const stream=p.incomingStreams.get(value.stream);if(stream)this.emit('stream',{id,stream,key:value.key});return;
+  }
+  this.emit('data',{id,value});
+ }
+ async share(stream,key='main'){
+  const previous=this.mediaStreams.get(key);if(key==='main')this.stream=stream;
+  if(stream)this.mediaStreams.set(key,stream);else this.mediaStreams.delete(key);
+  for(const [id,p]of this.peers){
+   if(stream)this.send({type:'media-stream',key,stream:stream.id},id);
+   for(const sender of p.pc.getSenders())if(previous?.getTracks().includes(sender.track))p.pc.removeTrack(sender);
    if(stream)for(const track of stream.getTracks())p.pc.addTrack(track,stream);
   }
  }
- leave(){this.closed=true;clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values())p.pc?.close();this.peers.clear();this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;this.secret=null;this.identity=null;this.code='';}
+ leave(){this.closed=true;clearInterval(this.ping);clearInterval(this.iceRefresh);const socket=this.ws;this.ws=null;socket?.close();for(const p of this.peers.values())p.pc?.close();this.peers.clear();for(const stream of this.mediaStreams.values())stream.getTracks().forEach(t=>t.stop());this.mediaStreams.clear();this.stream=null;this.secret=null;this.identity=null;this.code='';}
 }

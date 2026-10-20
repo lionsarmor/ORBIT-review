@@ -62,7 +62,7 @@ export function emit(type,data={},room=session.room){
  const event={id:uid(),actor:session.id,n:++session.clock,at:Date.now(),room,type,data};
  if(accept(event,session.id)){mesh.send({type:'event',event});return event;}
 }
-const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','watch','profile']);
+const allowed=new Set(['space','room','activity','message','reaction','queue','queue-remove','stroke','board-clear','chess','rom','task','link','watch','profile','game']);
 function accept(event,actor,snapshot=false){
  if(!event||!allowed.has(event.type)||typeof event.id!=='string'||event.id.length>40||typeof event.actor!=='string'||(!snapshot&&event.actor!==actor)||!Number.isSafeInteger(event.n)||event.n<1||event.n>1e9||!event.data||typeof event.data!=='object'||typeof event.room!=='string')return false;
  if(session.events.has(event.id))return false;
@@ -79,7 +79,7 @@ function accept(event,actor,snapshot=false){
  render(event.type);return true;
 }
 function rebuild(){
- const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},chess:{},rom:{},watch:{},profiles:{}};
+ const s={name:'Tonight',rooms:Object.fromEntries(defaultRooms.map(r=>[r.id,{...r}])),messages:[],reactions:{},queue:{},strokes:{},tasks:{},links:{},chess:{},rom:{},games:{},watch:{},profiles:{}};
  const ordered=[...session.events.values()].sort((a,b)=>a.n-b.n||a.actor.localeCompare(b.actor)||a.id.localeCompare(b.id));
  for(const e of ordered){
   const d=e.data,r=e.room;
@@ -94,6 +94,7 @@ function rebuild(){
    case 'stroke':if(Array.isArray(d.points)&&d.points.length<3000){s.strokes[r]??=[];s.strokes[r].push(d);}break;
    case 'board-clear':s.strokes[r]=[];break;
    case 'chess':try{const previous=s.chess[r]?.fen||'';if(d.reset)s.chess[r]={fen:'',computer:!!d.computer};else if(d.before===previous)s.chess[r]={...s.chess[r],fen:JSON.parse(chess_play(previous,d.move)).fen};}catch{}break;
+   case 'game':if(d.action==='start'&&(!s.games[r]||!session.members.has(s.games[r].host))&&typeof d.id==='string'&&d.id.length<=40&&typeof d.name==='string'&&d.name.length<=100&&['nes','snes','n64','genesis','atari'].includes(d.system))s.games[r]={id:d.id,name:d.name,system:d.system,host:e.actor};else if(d.action==='end'&&s.games[r]?.id===d.id&&s.games[r]?.host===e.actor)delete s.games[r];break;
    case 'rom':if(typeof d.rom==='string'&&d.rom.length<5000)s.rom[r]={...d,actor:e.actor,event:e.id};break;
    case 'task':if(typeof d.title==='string'&&['todo','doing','done'].includes(d.status))s.tasks[d.id]={...d,room:r};break;
    case 'link':if(safeURL(d.url))s.links[d.id]={...d,room:r};break;
@@ -107,9 +108,10 @@ function rebuild(){
 mesh.addEventListener('joined',e=>{
  const {id,profile}=e.detail;session.members.set(id,profile);
  mesh.send({type:'snapshot',events:[...session.events.values()],profiles:[...session.members]},id);
+ activities.arcade.peerJoined(id);
  render();toast(`${profile.name||'Someone'} joined your space.`);
 });
-mesh.addEventListener('left',e=>{const name=session.members.get(e.detail)?.name;session.members.delete(e.detail);if(session.dm===e.detail)selectRoom(session.room);render();if(name)toast(`${name} left.`);});
+mesh.addEventListener('left',e=>{const name=session.members.get(e.detail)?.name;session.members.delete(e.detail);activities.arcade.peerLeft(e.detail);if(session.dm===e.detail)selectRoom(session.room);render();if(name)toast(`${name} left.`);});
 mesh.addEventListener('data',e=>{
  if(!session.active)return;
  const {id,value:v}=e.detail;
@@ -127,7 +129,7 @@ mesh.addEventListener('data',e=>{
 });
 mesh.addEventListener('error',e=>toast(e.detail));
 mesh.addEventListener('ended',()=>leave());
-mesh.addEventListener('stream',e=>activities.stream(e.detail.id,e.detail.stream));
+mesh.addEventListener('stream',e=>activities.stream(e.detail.id,e.detail.stream,e.detail.key));
 mesh.addEventListener('connection',()=>renderStatus());
 function notify(name,text){if(soundEnabled)new Audio('assets/sounds/message.wav').play().catch(()=>{});if(session.notifications&&document.hidden&&Notification.permission==='granted')new Notification(`ORBIT · ${name||'Message'}`,{body:String(text).slice(0,100)});}
 function renderStatus(){$('#stage-status span').textContent=session.active?`${session.members.size} here · ${session.privacy==='relay'?'Relay only':'Peer connections'} · Memory only`:'Ready when you are';}
@@ -234,13 +236,30 @@ $('#queue-items').onclick=e=>{
 };
 const due=new Set();setInterval(()=>{if(!session.active)return;for(const q of Object.values(session.state.queue||{}))if(q.when&&q.when<=Date.now()&&!due.has(q.id)){due.add(q.id);toast(`It’s time for ${q.title}. Open Up next to start.`);}},10000);
 
+let customBackground=stored('orbit.background.image')||'';
+function background(mode){
+ if(!['default','plain','custom'].includes(mode)||mode==='custom'&&!customBackground)mode='default';
+ const stage=$('#stage');stage.dataset.background=mode;stage.style.setProperty('--custom-background',customBackground.startsWith('data:image/jpeg;base64,')?`url("${customBackground}")`:'none');preference('orbit.background',mode);
+ document.querySelectorAll('[data-background-choice]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.backgroundChoice===mode)));
+}
+background(stored('orbit.background')||'default');
+async function chooseBackground(file){
+ if(!file)return;if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>8*1024*1024)return toast('Choose a JPG, PNG or WebP image under 8 MB.');
+ try{const image=await createImageBitmap(file),scale=Math.min(1,1600/image.width,1000/image.height),c=document.createElement('canvas');c.width=Math.round(image.width*scale);c.height=Math.round(image.height*scale);c.getContext('2d').drawImage(image,0,0,c.width,c.height);image.close();customBackground=c.toDataURL('image/jpeg',.8);background('custom');try{localStorage.setItem('orbit.background.image',customBackground);toast('Background saved on this device.');}catch{toast('Background set for this visit; device storage is full.');}}catch{toast('That image couldn’t open. Try another one.');}
+}
+$('#background-toggle').onclick=()=>activities.setBackgroundOnly(!activities.backgroundOnly);
 $('#settings').onclick=settings;
 function settings(){
  modal('Make it yours',`<div class="skin-options">${['orbit','buddy','roddy'].map(s=>`<button class="skin-tile ${document.documentElement.dataset.skin===s?'selected':''}" data-skin="${s}"><img src="assets/${{orbit:'orbit.svg',buddy:'buddy.png',roddy:'roddy-full.svg'}[s]}" alt=""><strong>${s.toUpperCase()}</strong></button>`).join('')}</div>
+ <div class="settings-section"><h3>Chat background</h3><div class="background-options"><button data-background-choice="default">Default ORBIT scene</button><button data-background-choice="plain">Plain background</button><button id="background-image">Your image…</button><button id="background-remove">Remove saved image</button></div><input id="background-file" type="file" accept="image/jpeg,image/png,image/webp" hidden><p>Only on this device. Choosing an image saves a resized copy as a local preference. Use “Chat background” at the top to return to the scene while a game keeps running.</p></div>
  <div class="settings-section"><h3>Your presence</h3><form id="profile-form"><div class="form-row"><label>Name<input id="profile-name" maxlength="24" value="${esc(session.profile.name||'')}"></label><label>Status<select id="profile-status"><option>Here</option><option>Away</option><option>Busy</option></select></label></div><label>About you<input id="profile-about" maxlength="160" value="${esc(session.profile.about||'')}"></label><label>Away reply<input id="profile-away" maxlength="160" value="${esc(session.profile.away||'')}"></label><button>Update presence</button></form></div>
  <div class="settings-section"><h3>This device</h3><label>Chat opacity when idle<input id="opacity" type="range" min="0" max="70" value="${stored('orbit.opacity')||25}"></label><label class="toggle-row">Desktop notifications<input id="notifications" type="checkbox" ${session.notifications?'checked':''}></label><label class="toggle-row">Original BUDDY message sound<input id="sounds" type="checkbox" ${soundEnabled?'checked':''}></label><label class="toggle-row">24-hour clock<input id="clock24" type="checkbox" ${clock24?'checked':''}></label><button id="controllers" class="wide">Gamepads & controls ↗</button></div>
  <div class="settings-section"><h3>Connection privacy</h3><label>For the next space<select id="privacy"><option value="direct">Direct first · encrypted relay fallback</option><option value="relay">Hide my IP · relay only</option></select></label><p>Direct peers can see each other’s IP address. Relay only requires your own configured TURN service and never falls back to direct.</p><div class="notice">Early development build: encrypted peer transport and encrypted messages, with an unaudited invite-key handshake. Do not use for sensitive conversations yet.</div></div>
  <div class="settings-section"><h3>Optional networks</h3><p>${deployment.review?'Optional account connectors are available in the local app. They are disabled on this public review site.':'Separate service conversations. Turning a connector off removes local access. Server history follows that service’s rules.'}</p>${['buddy','nina'].map(s=>`<label class="toggle-row">${s==='buddy'?'BUDDY Network':'NINA / AIM'}<input type="checkbox" data-connector="${s}" ${connectors.active(s)?'checked':''} ${deployment.review?'disabled':''}></label>`).join('')}</div>`);
+ background(stored('orbit.background')||'default');
+ document.querySelectorAll('[data-background-choice]').forEach(b=>b.onclick=()=>background(b.dataset.backgroundChoice));
+ $('#background-image').onclick=()=>$('#background-file').click();$('#background-file').onchange=e=>chooseBackground(e.target.files[0]);
+ $('#background-remove').onclick=()=>{customBackground='';try{localStorage.removeItem('orbit.background.image');}catch{}background('default');toast('Saved background image removed.');};
  $('#profile-status').value=session.profile.status||'Here';
  $('#profile-form').onsubmit=e=>{e.preventDefault();if(!session.active)return toast('Join a space first.');session.profile={name:$('#profile-name').value.trim()||session.name,status:$('#profile-status').value,about:$('#profile-about').value,away:$('#profile-away').value};session.members.set(session.id,session.profile);awayReplies.clear();emit('profile',session.profile);toast('Presence updated.');};
  $('#opacity').oninput=e=>{document.documentElement.style.setProperty('--idle-opacity',e.target.value/100);preference('orbit.opacity',e.target.value);};

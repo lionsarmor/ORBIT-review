@@ -1,0 +1,17 @@
+Upstream: EmulatorJS v4.2.3 (unmodified selected files)
+Source commit: e150dc0491ae747028919fb82d6598954976ede6
+Release archive:
+https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z
+Archive SHA-256:
+07d451bc06fa3ad04ab30d9b94eb63ac34ad0babee52d60357b002bde8f3850b
+
+Selection: data/src/, data/compression/, data/emulator.css, data/version.json;
+non-threaded WebGL 1 and WebGL 2 .data cores plus reports for fceumm, snes9x,
+mupen64plus_next, picodrive and stella2014. Threaded/other systems are omitted.
+COPYING comes from that source tag. Core license.txt, core.json and build.json
+are extracted from the corresponding core archives. Stella's release omits
+license.txt; it is supplied from its upstream stella/license.txt source path.
+Verify selected upstream files with: python3 tools/verify-emulators.py
+
+See NOTICE.txt for source repositories and individual license conditions.
+The ORBIT cartridge adapter is separate and not included in these checksums.

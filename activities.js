@@ -1,18 +1,23 @@
+import {Arcade} from './arcade.js';
 export class Activities{
- constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.frame=null;this.gamepadMap={up:12,down:13,left:14,right:15,a:0,b:1};this.deadzone=.2;this.padSlot=0;this.padKeys=new Set();this.localKeys=new Set();this.remoteKeys=new Map();this.chessSelection=null;this.romEvent='';this.lastFrame=0;this.loop=this.loop.bind(this);requestAnimationFrame(this.loop);this.installKeys();}
- resetView(){this.mode='';this.chessSelection=null;}
- stop(){this.mode='';this.machine?.free();this.machine=null;this.romEvent='';this.frame=null;this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();document.querySelectorAll('audio[id^="voice-"]').forEach(a=>{a.srcObject=null;a.remove();});this.media=null;this.padKeys.clear();this.$('#activity-content').replaceChildren();}
+ constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.arcade=new Arcade({...api,activities:this});}
+ resetView(){this.arcade.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
+ stop(){this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();document.querySelectorAll('audio[id^="voice-"]').forEach(a=>{a.srcObject=null;a.remove();});this.media=null;this.$('#activity-content').replaceChildren();}
+ setBackgroundOnly(value){this.backgroundOnly=value;this.render(this.session.state.rooms[this.session.room]?.mode||'ambient','view');}
  render(mode,reason){
-  const changed=this.mode!==mode||this.room!==this.session.room;
-  if(changed){for(let k=0;k<16;k++)this.key(k,false);this.padKeys.clear();this.mode=mode;this.room=this.session.room;this.chessSelection=null;this.media=null;this.$('#activity-content').replaceChildren();}
-  this.$('#ambient').style.display=mode==='ambient'?'':'none';
-  if(mode==='ambient')return;
-  if(mode==='watch'){if(changed||reason==='watch')this.renderWatch();return;}
-  if(mode==='whiteboard'){if(changed)this.board();if(changed||['stroke','board-clear'].includes(reason))this.drawBoard();return;}
-  if(mode==='chess'){if(changed||reason==='chess')this.chess();return;}
-  if(mode==='emulator'){if(changed)this.emulator();this.loadSharedRom();return;}
-  if(mode==='tasks'){if(changed||reason==='task')this.tasks();return;}
-  if(mode==='news'){if(changed||reason==='link')this.links();}
+  this.arcade.reconcile();this.sharedMode=mode;
+  const toggle=this.$('#background-toggle');if(toggle){toggle.hidden=mode==='ambient'&&!this.backgroundOnly;toggle.textContent=this.backgroundOnly?'Return to activity':'Chat background';toggle.setAttribute('aria-pressed',String(!!this.backgroundOnly));}
+  const view=this.backgroundOnly?'ambient':mode;
+  const changed=this.mode!==view||this.room!==this.session.room||reason==='view';
+  if(changed){this.arcade.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;this.media=null;this.$('#activity-content').replaceChildren();}
+  this.$('#ambient').style.display=view==='ambient'?'':'none';
+  if(view==='ambient')return;
+  if(view==='watch'){if(changed||reason==='watch')this.renderWatch();return;}
+  if(view==='whiteboard'){if(changed)this.board();if(changed||['stroke','board-clear'].includes(reason))this.drawBoard();return;}
+  if(view==='chess'){if(changed||reason==='chess')this.chess();return;}
+  if(view==='emulator'){if(changed)this.arcade.show();else this.arcade.updateView();return;}
+  if(view==='tasks'){if(changed||reason==='task')this.tasks();return;}
+  if(view==='news'){if(changed||reason==='link')this.links();}
  }
  panel(title,tools,body){this.$('#activity-content').innerHTML=`<section class="activity-panel"><div class="activity-toolbar"><h2>${title}</h2>${tools}</div>${body}</section>`;}
  shareDialog(){
@@ -40,7 +45,8 @@ export class Activities{
   if(stream){stream.getVideoTracks()[0]?.addEventListener('ended',()=>this.publish(null));this.emit('watch',{url:`local:screen:${this.session.id}`,title:'Live screen',playing:true,time:0,at:Date.now()});this.emit('activity',{mode:'watch'});}
   else{this.emit('watch',{url:'',title:'',playing:false});this.toast('Sharing stopped.');}
  }
- stream(id,stream){
+ stream(id,stream,key='main'){
+  if(key.startsWith('arcade:')){this.arcade.stream(id,stream);return;}
   this.remoteStreams.set(id,stream);
   if(stream.getVideoTracks().length&&this.mode==='watch')this.renderWatch();
   if(!stream.getVideoTracks().length){let audio=document.getElementById(`voice-${id}`);if(!audio){audio=document.createElement('audio');audio.id=`voice-${id}`;audio.autoplay=true;document.body.append(audio);}audio.srcObject=stream;audio.play().catch(()=>this.toast('Tap Share → Join voice to enable audio playback.'));}
@@ -141,81 +147,8 @@ export class Activities{
    else{this.chessSelection=dest;this.chess();}
   };
  }
- emulator(){
-  const {$}=this;
-  this.panel('Pocket arcade',`<button id="emu-demo">Orbit Sketch</button><button id="emu-load">Open CHIP-8 ROM</button><button id="emu-controls">Controls</button><input id="rom-file" type="file" accept=".ch8,.rom,.bin" hidden>`,`<canvas id="emulator-screen" class="emulator-screen" width="64" height="32" aria-label="CHIP-8 display"></canvas><p id="emu-status" class="game-status">An original drawing toy is included. Load a CHIP-8 game you have permission to use.</p><div class="keypad">${[1,2,3,12,4,5,6,13,7,8,9,14,10,0,11,15].map(k=>`<button data-key="${k}">${k.toString(16).toUpperCase()}</button>`).join('')}</div>`);
-  $('#emu-load').onclick=()=>$('#rom-file').click();$('#emu-controls').onclick=()=>this.controllers();
-  $('#rom-file').onchange=async e=>{const f=e.target.files[0];if(!f)return;if(f.size>3584)return this.toast('This core supports standard CHIP-8 ROMs up to 3584 bytes.');const bytes=new Uint8Array(await f.arrayBuffer());this.shareRom(bytes,f.name);};
-  $('#emu-demo').onclick=()=>this.shareRom(this.demoRom(),'Orbit Sketch · original');
-  document.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{b.setPointerCapture(e.pointerId);this.key(Number(b.dataset.key),true);};b.onpointerup=b.onpointercancel=()=>this.key(Number(b.dataset.key),false);});
- }
- demoRom(){
-  // Original CHIP-8 drawing toy: 2/8/4/6 move a light, 5 clears the canvas.
-  return new Uint8Array([0x60,0x20,0x61,0x10,0xa2,0x34,0x00,0xe0,0xd0,0x11,0x62,0x02,0xe2,0xa1,0x71,0xff,0x62,0x08,0xe2,0xa1,0x71,0x01,0x62,0x04,0xe2,0xa1,0x70,0xff,0x62,0x06,0xe2,0xa1,0x70,0x01,0x62,0x05,0xe2,0xa1,0x00,0xe0,0x62,0x03,0xf2,0x15,0xf2,0x07,0x32,0x00,0x12,0x2c,0x12,0x08,0x80]);
- }
- shareRom(bytes,name){
-  const rom=btoa(String.fromCharCode(...bytes));this.emit('rom',{rom,name});this.toast('Shared arcade loaded. Everyone can use the controls.');
- }
- loadSharedRom(){
-  const r=this.session.state.rom[this.session.room];if(!r){this.machine?.free();this.machine=null;this.romEvent='';this.frame=null;return;}
-  if(this.$('#emu-status'))this.$('#emu-status').textContent=`${r.name} · ${r.actor===this.session.id?'Running on your device':'Live from a peer'} · shared controls`;
-  if(this.romEvent===r.event)return;
-  this.romEvent=r.event;this.machine?.free();this.machine=null;this.frame=null;this.localKeys.clear();this.remoteKeys.clear();
-  if(r.actor===this.session.id){try{this.machine=new this.core.Chip8();this.machine.load(Uint8Array.from(atob(r.rom),c=>c.charCodeAt(0)));}catch(e){this.toast(String(e));}}
- }
- key(k,down){
-  if(!this.session.active||this.mode!=='emulator')return;
-  const r=this.session.state.rom[this.session.room];if(!r)return;
-  if(down)this.localKeys.add(k);else this.localKeys.delete(k);
-  if(r.actor===this.session.id)this.applyKeys();else this.sendKeys(r);
- }
- sendKeys(r){this.mesh.send({type:'game-input',room:this.session.room,event:r.event,keys:[...this.localKeys]},r.actor);}
- applyKeys(){const all=new Set(this.localKeys);for(const [id,input]of this.remoteKeys){if(Date.now()-input.at>700){this.remoteKeys.delete(id);continue;}for(const k of input.keys)all.add(k);}for(let k=0;k<16;k++)this.machine?.key(k,all.has(k));}
- receive(id,v){
-  const r=this.session.state.rom[v.room];
-  if(v.type==='game-input'&&r?.actor===this.session.id&&r.event===v.event&&this.room===v.room&&Array.isArray(v.keys)&&v.keys.length<=16&&v.keys.every(k=>Number.isInteger(k)&&k>=0&&k<16)){this.remoteKeys.set(id,{keys:v.keys,at:Date.now()});this.applyKeys();}
-  if(v.type==='game-frame'&&r?.actor===id&&r.event===v.event&&typeof v.pixels==='string'&&v.pixels.length===2732&&this.room===v.room){try{this.frame=Uint8Array.from(atob(v.pixels),c=>c.charCodeAt(0));this.paintPixels();}catch{}}
- }
- paintPixels(){const c=this.$('#emulator-screen');if(!c||!this.frame)return;const ctx=c.getContext('2d');ctx.fillStyle='#080e15';ctx.fillRect(0,0,64,32);ctx.fillStyle='#e2ba7c';this.frame.forEach((v,i)=>{if(v)ctx.fillRect(i%64,Math.floor(i/64),1,1);});}
- installKeys(){
-  const mapping={'1':1,'2':2,'3':3,'4':12,q:4,w:5,e:6,r:13,a:7,s:8,d:9,f:14,z:10,x:0,c:11,v:15,ArrowUp:2,ArrowDown:8,ArrowLeft:4,ArrowRight:6,' ':5};
-  const handle=(e,down)=>{if(this.mode!=='emulator'||document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(mapping[e.key]!==undefined){e.preventDefault();this.key(mapping[e.key],down);}};
-  window.addEventListener('keydown',e=>handle(e,true));window.addEventListener('keyup',e=>handle(e,false));
-  window.addEventListener('blur',()=>{for(let i=0;i<16;i++)this.key(i,false);this.padKeys.clear();});
-  window.addEventListener('gamepadconnected',e=>this.toast(`Controller connected: ${e.gamepad.id}`));
-  window.addEventListener('gamepaddisconnected',()=>{for(const k of this.padKeys)this.key(k,false);this.padKeys.clear();this.toast('Controller disconnected. Keyboard and touch controls are available.');});
- }
- loop(now){
-  if(this.mode==='emulator'&&this.machine&&now-this.lastFrame>=1000/60){
-   this.lastFrame=now;try{this.applyKeys();this.machine.step(9);this.machine.tick();this.frame=this.machine.pixels();this.paintPixels();
-    if(now-(this.lastBroadcast||0)>100){this.lastBroadcast=now;this.mesh.send({type:'game-frame',room:this.room,event:this.romEvent,pixels:btoa(String.fromCharCode(...this.frame))});}
-   }catch(e){this.toast(String(e));this.machine.free();this.machine=null;}
-  }
-  if(this.mode==='emulator'&&now-(this.lastKeySend||0)>200){this.lastKeySend=now;const r=this.session.state.rom[this.session.room];if(r&&r.actor!==this.session.id)this.sendKeys(r);}
-  this.pollPads();requestAnimationFrame(this.loop);
- }
- pollPads(){
-  const pads=Array.from(navigator.getGamepads?.()||[]).filter(Boolean),pad=pads[this.padSlot]||null;
-  const status=this.$('#pad-status');if(status)status.textContent=pads.length?pads.map((p,i)=>`Player ${i+1}: ${p.id}${i===this.padSlot?' · active':''}`).join('\n'):'No controller yet. Pair one with your device, then press a button.';
-  if(this.$('#pad-axis'))this.$('#pad-axis').style.width=`${Math.abs(pad?.axes[0]||0)*100}%`;
-  if(this.remap&&pad){const index=pad.buttons.findIndex(b=>b.pressed);if(index>=0){this.gamepadMap[this.remap]=index;this.remap=null;this.toast('Button mapped.');}}
-  const next=new Set();
-  if(pad&&this.mode==='emulator'&&!document.querySelector('dialog[open]')&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)){
-   for(const [action,key]of Object.entries({up:2,down:8,left:4,right:6,a:5,b:0})){
-    const axis=action==='left'?(pad.axes[0]||0)<-this.deadzone:action==='right'?(pad.axes[0]||0)>this.deadzone:action==='up'?(pad.axes[1]||0)<-this.deadzone:action==='down'?(pad.axes[1]||0)>this.deadzone:false;
-    if(pad.buttons[this.gamepadMap[action]]?.pressed||axis)next.add(key);
-   }
-  }
-  for(const k of next)if(!this.padKeys.has(k))this.key(k,true);
-  for(const k of this.padKeys)if(!next.has(k))this.key(k,false);
-  this.padKeys=next;
- }
- controllers(){
-  const {$}=this;this.modal('Gamepads & controls',`<p>Pair a Bluetooth, USB, or phone-mounted controller with your operating system. Press a button to let the browser detect it.</p><pre id="pad-status" class="notice" style="white-space:pre-wrap"></pre><div class="pad-meter"><span id="pad-axis"></span></div><div class="form-row"><label>Local player slot<select id="pad-slot">${[0,1,2,3].map(i=>`<option value="${i}">Player ${i+1}</option>`).join('')}</select></label><label>Stick deadzone<input id="pad-deadzone" type="range" min="5" max="60" value="${this.deadzone*100}"></label></div><h3>Remap a button</h3><div class="button-group">${['up','down','left','right','a','b'].map(k=>`<button data-remap="${k}">${k.toUpperCase()}</button>`).join('')}</div><p>CHIP-8: keyboard 1234 / QWER / ASDF / ZXCV, or the on-screen keypad. The included drawing toy also supports arrow keys and Space. All participants can use the shared emulator; the loading peer runs it. Other console cores and native controller drivers are not included yet.</p>`);
-  $('#pad-slot').value=this.padSlot;$('#pad-slot').onchange=e=>this.padSlot=Number(e.target.value);
-  $('#pad-deadzone').oninput=e=>this.deadzone=Number(e.target.value)/100;
-  document.querySelectorAll('[data-remap]').forEach(b=>b.onclick=()=>{this.remap=b.dataset.remap;this.toast(`Press the controller button for ${this.remap.toUpperCase()}.`);});
- }
+ receive(id,v){this.arcade.receive(id,v);}
+ controllers(){this.arcade.controllers();}
  tasks(){
   const {$,esc,session}=this;this.panel('A little progress, together',`<button id="task-add">＋ Add a task</button>`,`<div class="task-columns">${['todo','doing','done'].map(status=>`<section class="task-column"><h3>${{todo:'To do',doing:'In progress',done:'Done'}[status]}</h3>${Object.values(session.state.tasks).filter(t=>t.room===session.room&&t.status===status).map(t=>`<div class="task-card">${esc(t.title)}<select data-task="${esc(t.id)}" aria-label="Status for ${esc(t.title)}">${['todo','doing','done'].map(s=>`<option value="${s}" ${s===status?'selected':''}>${s}</option>`).join('')}</select></div>`).join('')}</section>`).join('')}</div>`);
   $('#task-add').onclick=()=>{this.modal('One small thing',`<form id="task-form"><label>Task<input id="task-title" maxlength="120" required placeholder="Pick a movie for Friday"></label><button class="primary wide">Add task</button></form>`);$('#task-form').onsubmit=e=>{e.preventDefault();this.emit('task',{id:this.uid(),title:$('#task-title').value,status:'todo'});this.closeModal();};};
