@@ -11,9 +11,10 @@
   <div id="splitter" role="separator" aria-label="Resize room list" aria-orientation="horizontal" tabindex="0"><i></i></div>
   <div id="member-section"><div class="section-heading">Members <span id="member-count">0</span></div><div id="members"></div></div>
   <div id="service-links"></div>
-  <div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button><button id="leave" class="danger" disabled>Leave ↗</button></div>
+  <button id="lounge-design" class="subtle wide">✦ Design lounge</button><button id="lounge-options" class="subtle wide">Lounge options ⋯</button><div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button><button id="leave" class="danger" disabled>Leave ↗</button></div>
  </aside>
  <main>
+  <div id="lounge-bar"><button id="home-button" title="Saved lounges">◌ Home</button><nav id="lounge-carousel" aria-label="Saved lounges"></nav><form id="lounge-join"><input id="lounge-code" aria-label="Enter lounge code" placeholder="Enter lounge code or link" autocomplete="off" required><button>Join</button></form><button id="new-lounge" title="Create lounge">＋</button></div>
   <header>
    <button id="mobile-menu" class="icon" aria-label="Open rooms and members">☰</button>
    <div class="room-heading"><span id="room-icon">◌</span><div><strong id="room-title">Lounge</strong><small id="room-subtitle">A little space to be together</small></div></div>
@@ -27,6 +28,7 @@
   <div id="workspace">
    <section id="stage" aria-label="Shared activity">
     <div id="ambient"><div class="ambient-copy"><span class="eyebrow">A MOMENT, TOGETHER</span><h2>Make yourself<br>at home.</h2><p>Watch something. Make something.<br>Or just stay a while.</p><button id="start-watch">Find something to watch ↗</button></div><div class="scene-credit">AURORA COAST <span>ORBIT ORIGINAL</span></div></div>
+    <section id="welcome" class="lounge-home"><div class="home-intro"><span class="eyebrow">YOUR PEOPLE. YOUR LITTLE UNIVERSE.</span><h2 id="home-greeting">Welcome home.</h2><p>Your ID lives on this device. Your conversations live in the moment.</p><button id="identity-card">Your ID card ↗</button></div><p id="identity-warning" class="notice danger" role="alert" hidden></p><div class="home-list-heading"><h3>Your lounges</h3><small>Keep the invitation. Let the conversations go.</small></div><div id="saved-lounges"></div><form id="entry-form"><label>Your name<input id="entry-name" disabled maxlength="24" value="RODDY" autocomplete="nickname" required></label><label>Have a lounge code?<input id="join-code" disabled placeholder="Paste a code or invitation link" autocomplete="off"></label><label>Design for a new lounge<select id="home-template"><option value="">Fresh lounge</option></select></label><div class="button-group"><button type="submit" id="create-space" disabled class="primary">Create a lounge ↗</button><button type="button" id="join-space" disabled class="outlined">Join with code</button></div><small id="entry-status">Your ID is saved locally. No account needed.</small></form><div class="home-templates"><h3>Saved designs</h3><div id="template-list"></div></div></section>
     <div id="activity-content"></div>
     <div id="chat-overlay" class="auto"><div id="chat-context"></div><div id="messages" role="log" aria-live="polite"></div><form id="composer"><button type="button" id="emoji" aria-label="Choose emoji">☺</button><textarea id="message" rows="1" placeholder="Message Lounge…" aria-label="Message" maxlength="4000"></textarea><button type="button" id="attachment" aria-label="Share image or GIF">＋</button><button type="submit" aria-label="Send message">➤</button></form></div>
     <div id="stage-status"><i></i><span>Ready when you are</span></div>
@@ -35,7 +37,6 @@
   </div>
  </main>
 </div>
-<dialog id="welcome"><form id="entry-form"><div class="entry-brand"><img src="assets/orbit.svg" alt="ORBIT"></div><span class="eyebrow">TOGETHER, FOR NOW</span><h2>Your people.<br>Your little universe.</h2><p>Create a temporary space. Send a code.<br>When everyone leaves, the space ends.</p><label>Your name<input id="entry-name" maxlength="24" value="RODDY" autocomplete="nickname" required></label><label id="invite-label">Have an invite?<input id="join-code" placeholder="Paste a code or invitation link" autocomplete="off"></label><button type="submit" id="create-space" class="primary wide">Create a space ↗</button><button type="button" id="join-space" class="outlined wide">Join with code</button><div class="entry-skins"><button type="button" data-skin="orbit">ORBIT</button><button type="button" data-skin="buddy">BUDDY</button><button type="button" data-skin="roddy">RODDY</button></div><small id="entry-status">No account. No stored chat history.</small></form></dialog>
 <dialog id="modal"><div class="modal-header"><h2 id="modal-title"></h2><button id="modal-close" class="icon" aria-label="Close dialog">×</button></div><div id="modal-body"></div></dialog>
 <div id="toast" role="status"></div>
 <input type="file" id="image-file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>

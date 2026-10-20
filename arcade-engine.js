@@ -31,8 +31,11 @@ window.orbitEngine={
    const original=e.startGameError.bind(e);e.startGameError=message=>{original(message);onError('This cartridge didn’t boot: '+message);};
   }catch(error){onError(error.message);}
  },
+ volume(value){const master=this.emulator?.Module?.AL?.currentCtx?.gain?.gain;if(master)master.value=value===0?0:1;},
  input(player,values){const m=this.emulator?.gameManager;if(!this.started||!m)return;for(let i=0;i<24;i++)m.simulateInput(player,i,values[i]||0);},
  resume(){const e=this.emulator;e?.Module?.AL?.currentCtx?.audioCtx?.resume().catch(()=>{});},
+ snapshot(){return this.emulator.gameManager.getState();},
+ restore(state){this.emulator.gameManager.loadState(state);},
  frames(){return this.emulator?.gameManager?.functions.getFrameNum()||0;},
  stop(){this.stream?.getTracks().forEach(t=>t.stop());if(this.url)URL.revokeObjectURL(this.url);}
 };

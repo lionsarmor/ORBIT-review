@@ -1,15 +1,17 @@
 import {Arcade} from './arcade.js';
 export class Activities{
- constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.arcade=new Arcade({...api,activities:this});}
+ constructor(api){Object.assign(this,api);this.mode='';this.room='';this.localURLs=new Map();this.remoteStreams=new Map();this.chessSelection=null;this.active=false;this.arcade=new Arcade({...api,activities:this});this.voices=new Map();this.players=new Map();this.syncTimer=setInterval(()=>this.synchronize(),500);}
  resetView(){this.arcade.park();this.mode='';this.chessSelection=null;this.backgroundOnly=false;}
- stop(){this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();document.querySelectorAll('audio[id^="voice-"]').forEach(a=>{a.srcObject=null;a.remove();});this.media=null;this.$('#activity-content').replaceChildren();}
+ deactivate(){this.active=false;this.arcade.park();this.mode='';if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;for(const player of this.players.values())player.muted=true;for(const a of this.voices.values())a.muted=true;this.arcade.mute(true);}
+ stop(){clearInterval(this.syncTimer);this.arcade.stop();this.mode='';this.streams?.getTracks().forEach(t=>t.stop());this.streams=null;this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=null;for(const player of this.players.values()){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();}this.players.clear();for(const a of this.voices.values()){a.srcObject=null;a.remove();}this.voices.clear();for(const u of this.localURLs.values())URL.revokeObjectURL(u);this.localURLs.clear();this.remoteStreams.clear();this.media=null;if(this.active)this.$('#activity-content').replaceChildren();}
  setBackgroundOnly(value){this.backgroundOnly=value;this.render(this.session.state.rooms[this.session.room]?.mode||'ambient','view');}
  render(mode,reason){
+  if(!this.active)return;this.arcade.mute(false);for(const a of this.voices.values())a.muted=false;
   this.arcade.reconcile();this.sharedMode=mode;
   const toggle=this.$('#background-toggle');if(toggle){toggle.hidden=mode==='ambient'&&!this.backgroundOnly;toggle.textContent=this.backgroundOnly?'Return to activity':'Chat background';toggle.setAttribute('aria-pressed',String(!!this.backgroundOnly));}
   const view=this.backgroundOnly?'ambient':mode;
   const changed=this.mode!==view||this.room!==this.session.room||reason==='view';
-  if(changed){this.arcade.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;this.media=null;this.$('#activity-content').replaceChildren();}
+  if(changed){this.arcade.park();this.mode=view;this.room=this.session.room;this.chessSelection=null;if(this.media){this.media.muted=true;this.media.id='';this.media.style.display='none';document.body.append(this.media);}this.media=null;this.$('#activity-content').replaceChildren();}
   this.$('#ambient').style.display=view==='ambient'?'':'none';
   if(view==='ambient')return;
   if(view==='watch'){if(changed||reason==='watch')this.renderWatch();return;}
@@ -22,7 +24,7 @@ export class Activities{
  panel(title,tools,body){this.$('#activity-content').innerHTML=`<section class="activity-panel"><div class="activity-toolbar"><h2>${title}</h2>${tools}</div>${body}</section>`;}
  shareDialog(){
   const {$,modal,esc}=this;
-  modal('Something to share',`<form id="share-form"><label>Video link<input id="video-url" type="url" required placeholder="Direct .mp4 / .webm or a YouTube link"></label><button class="primary wide">Watch together ↗</button></form><div class="settings-section button-group"><button id="screen-share">Share screen / window</button><button id="local-share">Open a local video</button><button id="voice-share">${this.streams?.getAudioTracks().length?'Stop microphone':'Join voice'}</button><button id="stop-share">Stop sharing</button><input id="local-video" type="file" accept="video/*,audio/*" hidden></div><p>Everyone receives the same playback commands. Browsers may require each person to press Play once. Screen and local-media sharing depend on your browser. Protected streaming sites cannot be embedded.</p>`);
+  modal('Something to share',`<form id="share-form"><label>Video link<input id="video-url" type="url" required placeholder="Direct .mp4 / .webm or a YouTube link"></label><button class="primary wide">Watch together ↗</button></form><div class="settings-section button-group"><button id="screen-share">Share screen / window</button><button id="local-share">Open a local video</button><button id="voice-share">${this.microphone?'Stop microphone':'Join voice'}</button><button id="share-audio" ${this.streams?.getAudioTracks().length?'':'disabled'}>${this.streams?.getAudioTracks().some(t=>t.enabled)?'Mute shared audio':'Unmute shared audio'}</button><button id="stop-share" ${this.streams?'':'disabled'}>Stop screen / local media</button><input id="local-video" type="file" accept="video/*,audio/*" hidden></div><p>Everyone receives the same playback commands. Browsers may require each person to press Play once. Screen and local-media sharing depend on your browser. Protected streaming sites cannot be embedded.</p>`);
   $('#share-form').onsubmit=e=>{e.preventDefault();this.watch($('#video-url').value);this.closeModal();};
   $('#screen-share').onclick=async()=>{try{if(!navigator.mediaDevices?.getDisplayMedia)throw Error('Screen sharing is unavailable in this browser.');const s=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:24},audio:true});await this.publish(s);this.closeModal();}catch(e){this.toast(e.message);}};
   $('#local-share').onclick=()=>$('#local-video').click();
@@ -30,26 +32,29 @@ export class Activities{
    const f=e.target.files[0];if(!f)return;
    const token=`local:${this.uid()}`,url=URL.createObjectURL(f);this.localURLs.set(token,url);
    this.emit('watch',{url:token,title:f.name,playing:true,time:0,at:Date.now()});this.emit('activity',{mode:'watch'});this.closeModal();
-   const video=$('#watch-video');if(!video)return;
-   try{await video.play();const capture=video.captureStream||video.mozCaptureStream;if(capture){await this.mesh.share(capture.call(video));this.toast('Local video is streaming to the space.');}else this.toast('This browser cannot stream local media. Use screen sharing on desktop.');}catch(e){this.toast(e.message);}
+   const video=this.media;if(!video)return;
+   try{await video.play();const capture=video.captureStream||video.mozCaptureStream;if(capture){this.streams=capture.call(video);await this.mesh.share(this.streams);this.toast('Local video is streaming to the space.');}else this.toast('This browser cannot stream local media. Use screen sharing on desktop.');}catch(e){this.toast(e.message);}
   };
   $('#voice-share').onclick=async()=>{try{
-   if(this.streams?.getAudioTracks().length){await this.publish(null);return this.closeModal();}
+   if(this.microphone){await this.setMicrophone(null);return this.closeModal();}
    const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false});
-   this.streams?.getTracks().forEach(t=>t.stop());this.streams=s;await this.mesh.share(s);this.closeModal();this.toast('Microphone shared with people in this space.');
+   await this.setMicrophone(s);this.closeModal();this.toast('Microphone shared with people in this space.');
   }catch(e){this.toast(e.message);}};
+  $('#share-audio').onclick=()=>{if(!this.streams)return;const enabled=!this.streams.getAudioTracks().some(t=>t.enabled);this.streams.getAudioTracks().forEach(t=>t.enabled=enabled);this.closeModal();};
   $('#stop-share').onclick=async()=>{await this.publish(null);this.closeModal();};
  }
+ async setMicrophone(stream){this.microphone?.getTracks().forEach(t=>t.stop());this.microphone=stream;await this.mesh.share(stream,'microphone');if(stream)stream.getAudioTracks()[0]?.addEventListener('ended',()=>{if(this.microphone===stream)this.setMicrophone(null);});}
  async publish(stream){
   this.streams?.getTracks().forEach(t=>t.stop());this.streams=stream;await this.mesh.share(stream);
-  if(stream){stream.getVideoTracks()[0]?.addEventListener('ended',()=>this.publish(null));this.emit('watch',{url:`local:screen:${this.session.id}`,title:'Live screen',playing:true,time:0,at:Date.now()});this.emit('activity',{mode:'watch'});}
-  else{this.emit('watch',{url:'',title:'',playing:false});this.toast('Sharing stopped.');}
+  if(stream){this.captureRoom=this.session.room;stream.getVideoTracks()[0]?.addEventListener('ended',()=>{if(this.streams===stream)this.publish(null);});this.emit('watch',{url:`local:screen:${this.session.id}`,title:'Live screen',playing:true,time:0,at:Date.now()});this.emit('activity',{mode:'watch'});}
+  else{const room=this.captureRoom||this.session.room;this.captureRoom=null;this.emit('watch',{url:'',title:'',playing:false},room);this.toast('Sharing stopped.');}
  }
  stream(id,stream,key='main'){
   if(key.startsWith('arcade:')){this.arcade.stream(id,stream);return;}
+  if(key==='microphone'){let a=this.voices.get(id);if(!a){a=document.createElement('audio');a.autoplay=true;document.body.append(a);this.voices.set(id,a);}a.srcObject=stream;a.muted=!this.active;a.play().catch(()=>{});return;}
   this.remoteStreams.set(id,stream);
   if(stream.getVideoTracks().length&&this.mode==='watch')this.renderWatch();
-  if(!stream.getVideoTracks().length){let audio=document.getElementById(`voice-${id}`);if(!audio){audio=document.createElement('audio');audio.id=`voice-${id}`;audio.autoplay=true;document.body.append(audio);}audio.srcObject=stream;audio.play().catch(()=>this.toast('Tap Share → Join voice to enable audio playback.'));}
+  if(key==='microphone'||!stream.getVideoTracks().length){let audio=this.voices.get(id);if(!audio){audio=document.createElement('audio');audio.autoplay=true;document.body.append(audio);this.voices.set(id,audio);}audio.muted=!this.active;audio.srcObject=stream;audio.play().catch(()=>{});}
  }
  postedVideo(url){if(this.videoKind(url)!=='link')this.watch(url);}
  videoKind(url){
@@ -58,7 +63,8 @@ export class Activities{
  }
  watch(url){const valid=this.safeURL(url);if(!valid)return this.toast('Use a valid http or https video link.');this.emit('watch',{url:valid,title:new URL(valid).hostname,playing:true,time:0,at:Date.now()});this.emit('activity',{mode:'watch'});}
  renderWatch(){
-  const {$,esc,session}=this,w=session.state.watch[session.room];
+  if(!this.active||this.mode!=='watch')return;
+  const {$,esc,session}=this,room=session.room,w=session.state.watch[room];
   if(!w?.url){$('#activity-content').innerHTML='<div class="watch-container" style="background:transparent"><div class="media-empty"><span class="eyebrow">THE BEST SEAT IS NEXT TO YOUR PEOPLE</span><h2 style="margin-top:18px">Make it a movie night.</h2><p>Paste a video into chat, share a screen, or add something to Up next.</p><button id="watch-open" class="primary">Choose something ↗</button></div></div>';$('#watch-open').onclick=()=>this.shareDialog();return;}
   const kind=w.url.startsWith('local:')?'local':this.videoKind(w.url);
   if(kind==='link'){
@@ -68,19 +74,21 @@ export class Activities{
   const same=this.media?.dataset.source===w.url;
   if(!same){
    $('#activity-content').innerHTML='<div class="watch-container"><video id="watch-video" controls playsinline></video><button id="enable-play" class="play-prompt">▶ Enable playback</button></div>';
-   const video=$('#watch-video');this.media=video;video.dataset.source=w.url;video.autoplay=true;
+   let video=this.players.get(this.session.room);if(video&&video.dataset.source!==w.url){video.onpause=video.onplay=video.onseeked=null;video.pause();video.srcObject=null;video.remove();this.players.delete(this.session.room);video=null;}
+   if(video){$('#watch-video').replaceWith(video);video.id='watch-video';video.style.display='';video.muted=false;}else{video=$('#watch-video');this.players.set(this.session.room,video);}this.media=video;video.dataset.source=w.url;video.autoplay=true;
    if(kind==='local'){
     if(this.localURLs.has(w.url))video.src=this.localURLs.get(w.url);
     else{const stream=w.actor===session.id?this.streams:this.remoteStreams.get(w.actor);if(stream){video.srcObject=stream;video.muted=w.actor===session.id;}else{video.poster='assets/aurora.png';this.toast('Waiting for the shared stream…');}}
    }else video.src=w.url;
    $('#enable-play').onclick=()=>video.play().then(()=>$('#enable-play')?.remove()).catch(e=>this.toast(e.message));
+   video.onwaiting=()=>{video.dataset.buffering='true';};video.oncanplay=()=>{delete video.dataset.buffering;};
    video.onplaying=()=>$('#enable-play')?.remove();
    const send=type=>{
     if(video.srcObject||w.url.startsWith('local:'))return;
-    const desired=session.state.watch[session.room];
-    if(type==='seeked'&&this.expectedSeek!=null&&Math.abs(video.currentTime-this.expectedSeek)<.3){this.expectedSeek=null;return;}
+    const desired=session.state.watch[room];
+    if(type==='seeked'&&video.expectedSeek!=null&&Math.abs(video.currentTime-video.expectedSeek)<.3){video.expectedSeek=null;return;}
     if(type!=='seeked'&&desired?.playing===!video.paused)return;
-    this.expectedSeek=null;this.emit('watch',{url:w.url,title:w.title,playing:!video.paused,time:video.currentTime,at:Date.now()});
+    video.expectedSeek=null;this.emit('watch',{url:w.url,title:w.title,playing:!video.paused,time:video.currentTime,at:Date.now()},room);
    };
    video.onplay=()=>send('play');video.onpause=()=>send('pause');video.onseeked=()=>send('seeked');
    video.onended=()=>this.toast('That’s a wrap. Choose the next activity in Up next.');
@@ -93,10 +101,22 @@ export class Activities{
    return;
   }
   if(video.srcObject)return;
-  const target=Math.max(0,Number(w.time)||0)+(w.playing?Math.max(0,(Date.now()-w.at)/1000):0);
-  if(video.readyState>0&&Math.abs(video.currentTime-target)>.25){this.expectedSeek=Number.isFinite(video.duration)?Math.min(target,video.duration):target;video.currentTime=this.expectedSeek;}
+  const target=this.watchTime(w);
+  if(video.readyState>0&&Math.abs(video.currentTime-target)>.25){video.expectedSeek=Number.isFinite(video.duration)?Math.min(target,video.duration):target;video.currentTime=video.expectedSeek;}
   if(w.playing)video.play().catch(()=>{});else video.pause();
-  if(video.readyState<1)video.onloadedmetadata=()=>this.renderWatch();
+  if(video.readyState<1)video.onloadedmetadata=()=>{if(this.active&&this.session.room===room&&this.mode==='watch')this.renderWatch();};
+ }
+ cleanupRooms(){for(const [room,player]of this.players)if(!this.session.state.rooms[room]){player.onpause=player.onplay=player.onseeked=null;player.pause();player.srcObject=null;player.removeAttribute('src');player.remove();this.players.delete(room);}if(this.captureRoom&&!this.session.state.rooms[this.captureRoom])this.publish(null);}
+ watchTime(w){const offset=w.actor===this.session.id?0:(this.mesh.clockOffsets?.get(w.actor)||this.mesh.lastOffsets?.get(w.actor))?.offset;return Math.max(0,Number(w.time)||0)+(w.playing&&typeof w.stamp==='number'&&offset!==undefined?Math.max(0,(performance.now()-(w.stamp+offset))/1000):0);}
+ synchronize(){
+  if(!this.session.active)return;
+  if(this.session.state.owner===this.session.id)for(const [room,w]of Object.entries(this.session.state.watch||{}))if(w.url&&!this.session.members.has(w.actor)){if(w.url.startsWith('local:'))this.emit('watch',{url:'',title:'Share ended',playing:false},room);else this.emit('watch',{...w,time:this.watchTime(w)},room);}
+  for(const [room,video]of this.players){const w=this.session.state.watch?.[room];if(!w||video.dataset.source!==w.url||video.srcObject||w.url.startsWith('local:'))continue;
+   const target=this.watchTime(w),delta=target-video.currentTime;
+   if(!this.session.members.has(w.actor)&&this.session.state.owner===this.session.id){this.emit('watch',{...w,time:target},room);continue;}
+   if(w.actor===this.session.id&&performance.now()-(this.lastTimeline||0)>2000&&video.readyState>1){this.lastTimeline=performance.now();this.emit('watch',{url:w.url,title:w.title,playing:!video.paused,time:video.currentTime},room);}
+   if(video.readyState>1){if(Math.abs(delta)>1.2){video.expectedSeek=target;video.currentTime=target;}else video.playbackRate=w.playing&&Math.abs(delta)>.12?Math.max(.97,Math.min(1.03,1+delta*.04)):1;if(w.playing&&!video.dataset.buffering)video.play().catch(()=>{});if(!w.playing)video.pause();}
+  }
  }
  youtube(w){
   const {$,esc}=this,u=new URL(w.url);let id=u.hostname==='youtu.be'?u.pathname.slice(1):u.searchParams.get('v')||u.pathname.split('/').at(-1);
@@ -111,7 +131,7 @@ export class Activities{
    $('#youtube-frame').onload=()=>{$('#youtube-frame')?.contentWindow.postMessage(JSON.stringify({event:'listening'}),'https://www.youtube-nocookie.com');this.youtube(this.session.state.watch[this.session.room]);};
   }
   const command=(func,args=[])=>$('#youtube-frame')?.contentWindow.postMessage(JSON.stringify({event:'command',func,args}),'https://www.youtube-nocookie.com');
-  command('seekTo',[Math.max(0,Number(w.time)||0),true]);command(w.playing?'playVideo':'pauseVideo');
+  command('seekTo',[this.watchTime(w),true]);command(w.playing?'playVideo':'pauseVideo');
  }
  board(){
   const {$}=this;
