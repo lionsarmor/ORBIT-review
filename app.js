@@ -1,3 +1,4 @@
+import {fileMetadata} from './attachments.js';
 import {compactLog,validWatch} from './compact-log.js';
 import {device,installPhone,registerShell} from './platform.js';
 import {chessEvent} from './chess-room.js';
@@ -12,12 +13,12 @@ import {Activities} from './activities.js';
 import {Connectors} from './connectors.js';
 import {face,facesIn} from './faces.js';
 import {appBase,deployment} from './runtime.js';
-import {Identity,invitation,design,readImage,image} from './identity.js';
+import {Identity,invitation,design,readImage,image,recoveryKey} from './identity.js';
 
 export const $=s=>document.querySelector(s);
 export const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const uid=()=>b64(random(12));
-export function safeURL(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.href:null;}catch{return null;}}
+export function safeURL(value){try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?u.href:null;}catch{return null;}}
 let toastTimer;
 export function toast(s){$('#toast').textContent=s;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
 export function modal(title,html){$('#modal').classList.remove('wipe-modal');delete $('#modal').dataset.wipeLounge;for(const l of lounges.values())l.activities.arcade.release();$('#modal-title').textContent=title;$('#modal-body').innerHTML=html;if(!$('#modal').open)$('#modal').showModal();}
@@ -42,7 +43,7 @@ function context(){
 function makeActivities(l){
  let a;const live=()=>l.activities===a;
  const scopedMesh={clockOffsets:l.mesh.clockOffsets,lastOffsets:l.mesh.lastOffsets,send:(...args)=>live()?l.mesh.send(...args):Promise.resolve(),share:(stream,...args)=>{if(live())return l.mesh.share(stream,...args);stream?.getTracks().forEach(t=>t.stop());return Promise.resolve();}};
- a=new Activities({emit:(...args)=>live()&&within(l,()=>emit(...args)),refresh:reason=>live()&&within(l,()=>render(reason)),timeline:(...args)=>live()&&within(l,()=>sendTimeline(...args)),session:l.session,toast,modal:(...args)=>live()&&modal(...args),closeModal,esc,$,safeURL,uid,mesh:scopedMesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});return a;
+ a=new Activities({emit:(...args)=>live()&&within(l,()=>emit(...args)),privateMessage:(peer,attachment)=>live()&&within(l,()=>sendDM(peer,'',attachment)),refresh:reason=>live()&&within(l,()=>render(reason)),timeline:(...args)=>live()&&within(l,()=>sendTimeline(...args)),session:l.session,toast,modal:(...args)=>live()&&modal(...args),closeModal,esc,$,safeURL,uid,mesh:scopedMesh,isVisible:()=>selected===l,core:{chess_state,chess_play,chess_computer,Chip8}});return a;
 }
 function bind(l){current=l;mesh=l.mesh;session=l.session;activities=l.activities;unread=l.unread;awayReplies=l.awayReplies;due=l.due;}
 function within(l,work){const old=current;bind(l);try{return work();}finally{bind(old);}}
@@ -91,7 +92,7 @@ function initializeLounge(l,template=null){
 }
 export function activate(l){
  if(selected){selected.session.drafts.set(selected.session.dm||selected.session.room,$('#message').value);selected.activities.deactivate();}
- selected=l;bind(l||homeContext);document.body.classList.toggle('home-view',!l);if(l)$('#welcome').close();$('#workspace').classList.toggle('at-home',!l);$('#invite').disabled=$('#leave').disabled=!l;
+ selected=l;bind(l||homeContext);document.body.classList.toggle('home-view',!l);if(l)$('#welcome').close();$('#workspace').classList.toggle('at-home',!l);$('#invite').disabled=!l;if($('#leave'))$('#leave').disabled=!l;
  closeMobileSidebar();if(l){if(!session.dm)l.unread.delete(session.room);l.activities.active=true;l.activities.mode='';$('#message').value=session.drafts.get(draftKey())||'';render();}else{homeContext.activities.active=false;$('#activity-content').replaceChildren();$('#messages').replaceChildren();$('#rooms').replaceChildren();$('#members').replaceChildren();$('#space-name').textContent='ORBIT';$('#room-title').textContent='Your little universe';$('#room-subtitle').textContent='Choose a lounge above';$('#ambient').style.display='';$('#member-count').textContent='0';}
  $('#start-watch').textContent=l?'Find something to watch ↗':'Create or join a lounge ↗';renderHub();applyLoungeDesign();
 }
@@ -183,9 +184,9 @@ l.mesh.addEventListener('data',e=>within(l,()=>{
   // Snapshots are invite-holder assertions, never a cryptographic identity proof.
   for(const event of v.events)if(!session.events.has(event?.id))accept(event,id,true);
   render();
- }else if(v.type==='dm'&&typeof v.text==='string'&&v.text.length<=4000&&typeof v.id==='string'){
-  if(session.private.some(m=>m.id===v.id))return;
-  session.private.push({...v,from:id,to:session.id,at:Date.now()});if(session.private.length>500)session.private.shift();
+ }else if(v.type==='dm'&&typeof v.text==='string'&&v.text.length<=4000&&typeof v.id==='string'&&v.id.length<=40){
+  if(v.attachment&&!fileMetadata(v.attachment)||session.private.some(m=>m.id===v.id))return;
+  session.private.push({type:'dm',id:v.id,text:v.text,...(v.attachment?{attachment:fileMetadata(v.attachment)}:{}),from:id,to:session.id,at:Date.now()});if(session.private.length>500)session.private.shift();
   notify(session.members.get(id)?.name,v.text);wakeChat();renderMessages();
   if(session.profile.status==='Away'&&session.profile.away&&!awayReplies.has(id)){awayReplies.add(id);sendDM(id,`Away: ${session.profile.away}`);}
  }else activities.receive(id,v);
@@ -217,12 +218,12 @@ export function render(reason){
 }
 function renderMessages(){
  if(current!==selected)return;
- const items=session.dm?session.private.filter(m=>m.from===session.dm||m.to===session.dm).map(m=>({id:m.id,actor:m.from,at:m.at,data:{name:session.members.get(m.from)?.name||'Member',text:m.text}})):session.state.messages?.filter(m=>m.room===session.room)||[];
+ const items=session.dm?session.private.filter(m=>m.from===session.dm||m.to===session.dm).map(m=>({id:m.id,actor:m.from,at:m.at,data:{name:session.members.get(m.from)?.name||'Member',text:m.text,attachment:m.attachment}})):session.state.messages?.filter(m=>m.room===session.room)||[];
  const box=$('#messages'),atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<50;
  const key=session.dm||session.room,windowSize=current.messageWindows.get(key)||100;
  box.innerHTML=(items.length>windowSize?'<button id="messages-earlier" class="subtle wide">↑ Earlier messages from this visit</button>':'')+items.slice(-windowSize).map(m=>{
   const d=m.data,reactions=Object.values(session.state.reactions[m.id]||{}),image=typeof d.image==='string'&&/^data:image\/(png|jpeg|gif|webp);base64,[a-zA-Z0-9+/=]+$/.test(d.image)?d.image:null;
-  return `<article class="message" data-message="${esc(m.id)}"><span class="avatar">${esc(String(d.name||'?').slice(0,2).toUpperCase())}</span><div class="message-body"><strong>${esc(d.name)}</strong><time>${new Date(m.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:!clock24})}</time><p>${linkify(d.text)}</p>${image?`<img src="${image}" alt="Shared image">`:''}${d.attachment?activities.attachments.html(d.attachment):''}${reactions.length?`<button class="reaction" data-react="${esc(m.id)}">${esc(reactions.join(' '))}</button>`:''}${!session.dm?`<button class="react-add" data-react="${esc(m.id)}" aria-label="React to message">☺＋</button>`:''}</div></article>`;
+  return `<article class="message" data-message="${esc(m.id)}"><span class="avatar">${esc(String(d.name||'?').slice(0,2).toUpperCase())}</span><div class="message-body"><strong>${esc(d.name)}</strong><time>${new Date(m.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:!clock24})}</time><p>${linkify(d.text)}</p>${image?`<img src="${image}" alt="Shared image">`:''}${d.attachment?activities.attachments.html(d.attachment,session.dm||null):''}${reactions.length?`<button class="reaction" data-react="${esc(m.id)}">${esc(reactions.join(' '))}</button>`:''}${!session.dm?`<button class="react-add" data-react="${esc(m.id)}" aria-label="React to message">☺＋</button>`:''}</div></article>`;
  }).join('');
  if(atBottom)box.scrollTop=box.scrollHeight;
  const earlier=$('#messages-earlier');if(earlier)earlier.onclick=()=>{const height=box.scrollHeight,top=box.scrollTop;current.messageWindows.set(key,windowSize+100);renderMessages();box.scrollTop=top+box.scrollHeight-height;};
@@ -247,7 +248,6 @@ $('#invite').onclick=()=>{
  modal('Bring your people',`<p>Anyone with this code can join or reopen this lounge. Share it privately. When everyone leaves, chat and live activities are cleared.</p><label>Invitation link<textarea id="invite-value" rows="4" readonly>${esc(link)}</textarea></label><button id="copy-invite" class="primary wide">Copy invitation</button><div class="notice" style="margin-top:16px">Up to 8 people in this first build. Friends need to reach this app’s address. ${['localhost','127.0.0.1'].includes(location.hostname)?'A localhost link only works on this computer.':'This link uses the live review connection helper.'}</div>`);
  $('#copy-invite').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Invitation copied.');}catch{$('#invite-value').select();toast('Select and copy the invitation.');}};
 };
-$('#leave').onclick=()=>leave();
 function electOwner(l){within(l,()=>{const previous=session.state.owner;if(previous&&!session.members.has(previous)){const next=[...session.members.keys()].sort()[0];if(next===session.id)emit('owner',{previous,next});}});}
 export function leaveLounge(l=selected){
  if(!l)return;within(l,()=>{const next=[...session.members.keys()].filter(id=>id!==session.id).sort()[0];if(session.state.owner===session.id&&next)emit('owner',{previous:session.id,next});});
@@ -265,7 +265,7 @@ async function forgetLounge(id){
 }
 async function leave(){if(selected)await forgetLounge(selected.key);if(!selected)showWelcome();}
 window.addEventListener('pagehide',()=>{for(const l of lounges.values()){l.activities.stop();l.mesh.leave();}connectors.disconnectAll();});
-function sendDM(to,text){const m={type:'dm',id:uid(),text,from:session.id,to,at:Date.now()};session.private.push(m);mesh.send(m,to);renderMessages();}
+function sendDM(to,text,attachment){if(!session.members.has(to))return false;const m={type:'dm',id:uid(),text,...(attachment?{attachment}:{}),from:session.id,to,at:Date.now()};session.private.push(m);if(session.private.length>500)session.private.shift();mesh.send(m,to);renderMessages();return m;}
 $('#composer').onsubmit=e=>{
  e.preventDefault();const text=$('#message').value.trim();if(!text||!session.active)return;
  if(session.dm)sendDM(session.dm,text);else{
@@ -277,7 +277,7 @@ $('#composer').onsubmit=e=>{
 $('#message').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#composer').requestSubmit();}};
 $('#emoji').onclick=()=>{modal('Say it with a face',`<p>The original BUDDY faces</p><div class="button-group">${['S','G','W','F','A'].map(c=>`<button data-emoji=":${c}:">${face(c)}</button>`).join('')}</div><div class="emoji-grid" style="margin-top:16px">${['🙂','😄','😂','🥰','😎','🤔','😴','🥳','👽','🛸','❤️','👍','🔥','🎮','🍿','✨'].map(x=>`<button data-emoji="${x}">${x}</button>`).join('')}</div><p>Images and animated GIFs can also be shared with the ＋ button.</p>`);$('#modal-body').onclick=e=>{const b=e.target.closest('[data-emoji]');if(b){$('#message').value+=b.dataset.emoji;closeModal();$('#message').focus();}};};
 $('#messages').onclick=e=>{activities.attachments.click(e);const b=e.target.closest('[data-react]');if(b)emit('reaction',{message:b.dataset.react,emoji:'👍'});};
-$('#attachment').onclick=()=>{if(session.dm)return toast('Image sharing is available in rooms.');$('#image-file').click();};
+$('#attachment').onclick=()=>$('#image-file').click();
 $('#image-file').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
  try{await activities.attachments.publish(f);}catch(error){toast(error.message);}
@@ -290,6 +290,7 @@ function syncPanelButtons(){
  for(const [id,show,label]of [['left',left,'rooms and members'],['top',!$('#top-nav').hidden,'top navigation'],['right',!!selected&&!$('#queue').classList.contains('closed'),'Up next']]){
   const button=$('#panel-'+id),text=`${show?'Hide':'Show'} ${label}`;button.setAttribute('aria-expanded',String(show));button.setAttribute('aria-label',text);button.title=text;
  }
+ $('#panel-top-label').textContent=$('#top-nav').hidden?'Show top bar':'Hide top bar';
  $('#panel-right').disabled=!selected;$('#mobile-menu').setAttribute('aria-expanded',String(left));
 }
 function closeMobileSidebar(){document.body.classList.remove('menu-open');syncPanelButtons();}
@@ -347,7 +348,8 @@ function settings(){
  <div class="settings-section"><h3>Your presence</h3><form id="profile-form"><div class="form-row"><label>Name<input id="profile-name" maxlength="24" value="${esc(identity.value.name)}"></label><label>Status<select id="profile-status"><option>Here</option><option>Away</option><option>Busy</option></select></label></div><label>About you<input id="profile-about" maxlength="160" value="${esc(identity.value.about)}"></label><label>Away reply<input id="profile-away" maxlength="160" value="${esc(session.profile.away||'')}"></label><button>Update presence</button></form></div>
  <div class="settings-section"><h3>This device</h3><label>Chat opacity when idle<input id="opacity" type="range" min="0" max="70" value="${stored('orbit.opacity')||25}"></label><label class="toggle-row">Desktop notifications<input id="notifications" type="checkbox" ${session.notifications?'checked':''}></label><label class="toggle-row">Original BUDDY message sound<input id="sounds" type="checkbox" ${soundEnabled?'checked':''}></label><label class="toggle-row">24-hour clock<input id="clock24" type="checkbox" ${clock24?'checked':''}></label><button id="controllers" class="wide">Gamepads & controls ↗</button></div>
  <div class="settings-section"><h3>Connection privacy</h3><label>For the next space<select id="privacy"><option value="direct">Direct first · encrypted relay fallback</option><option value="relay">Hide my IP · relay only</option></select></label><p>Direct peers can see each other’s IP address. Relay only requires your own configured TURN service and never falls back to direct.</p><div class="notice">Early development build: encrypted peer transport and encrypted messages, with an unaudited invite-key handshake. Do not use for sensitive conversations yet.</div></div>
- <div class="settings-section"><h3>Optional networks</h3><p>${deployment.review?'Optional account connectors are available in the local app. They are disabled on this public review site.':'Separate service conversations. Turning a connector off removes local access. Server history follows that service’s rules.'}</p>${['buddy','nina'].map(s=>`<label class="toggle-row">${s==='buddy'?'BUDDY Network':'NINA / AIM'}<input type="checkbox" data-connector="${s}" ${connectors.active(s)?'checked':''} ${deployment.review?'disabled':''}></label>`).join('')}</div>`);
+ <div class="settings-section"><h3>Optional networks</h3><p>${deployment.review?'Optional account connectors are available in the local app. They are disabled on this public review site.':'Separate service conversations. Turning a connector off removes local access. Server history follows that service’s rules.'}</p>${['buddy','nina'].map(s=>`<label class="toggle-row">${s==='buddy'?'BUDDY Network':'NINA / AIM'}<input type="checkbox" data-connector="${s}" ${connectors.active(s)?'checked':''} ${deployment.review?'disabled':''}></label>`).join('')}</div><div class="settings-section settings-departure"><button id="leave" class="danger wide" ${selected?'':'disabled'}>Leave lounge ↗</button><p>${selected?`Disconnect and remove ${esc(selected.session.state.name)} from this local ID. Other lounges stay connected. Closing ORBIT keeps saved lounges.`:'Join a lounge to use this action.'}</p></div>`);
+ $('#leave').onclick=async()=>{closeModal();await leave();};
  background(stored('orbit.background')||'default');
  document.querySelectorAll('[data-background-choice]').forEach(b=>b.onclick=()=>background(b.dataset.backgroundChoice));
  $('#background-image').onclick=()=>$('#background-file').click();$('#background-file').onchange=e=>chooseBackground(e.target.files[0]);
@@ -449,9 +451,10 @@ $('#template-list').onclick=e=>{const create=e.target.closest('[data-template-cr
 $('#lounge-options').onclick=()=>selected&&savedOptions(selected.key);
 function download(text,name){const u=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 function identityDialog(){
- modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations and your creator controls, but never chat, ROMs or live session keys.</p><p>For export, choose a new backup passphrase below. For import, enter the passphrase used when that file was exported. This is separate from a RODDY or service login; creating a lounge does not create a passphrase.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="Export: choose one · Import: use the original"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Forgot an old backup’s passphrase? If your ID is loaded here, choose a new one and export a fresh backup. ORBIT does not store backup passphrases.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
+ modal('Your local ID card',`<div class="identity-preview">${identity.value.avatar?`<img src="${identity.value.avatar}" alt="Your avatar">`:'<span>◌</span>'}<div><h3>${esc(identity.value.name)}</h3><small>${identity.value.lounges.length} saved lounges · ${identity.value.templates.length} designs</small></div></div><p>Saved automatically on this device. Backups include private lounge invitations and your creator controls, but never chat, ROMs or live session keys.</p><p>For export, choose a new backup passphrase below. For import, enter the passphrase used when that file was exported. This is separate from a RODDY or service login; creating a lounge does not create a passphrase.</p><button id="id-avatar">Change avatar</button><input id="id-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" hidden><label>Backup passphrase<input id="id-passphrase" type="password" autocomplete="new-password" minlength="8" placeholder="Export: choose one · Import: use the original"></label><div class="button-group"><button id="id-export" class="primary">Export ID card</button><button id="id-import">Import ID card</button><button id="id-export-recovery">Export with recovery key…</button></div><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Forgot an old backup’s passphrase? If your ID is loaded here, choose a new one and export a fresh backup. ORBIT does not store backup passphrases.</p><button id="id-delete" class="danger">Delete local ID…</button>`);
  $('#id-avatar').onclick=()=>$('#id-avatar-file').click();$('#id-avatar-file').onchange=async e=>{try{const value=await readImage(e.target.files[0],128);identity.value.avatar=value;saveIdentity();for(const l of lounges.values())within(l,()=>{session.profile.avatar=value;emit('profile',session.profile);});identityDialog();}catch(error){toast(error.message);}};
  $('#id-export').onclick=async()=>{try{for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))identity.value.settings[key]=localStorage.getItem(key);download(await identity.export($('#id-passphrase').value),'ORBIT.orbit-id');$('#id-status').textContent='Encrypted ID exported. Keep its passphrase separately.';}catch(e){$('#id-status').textContent=e.message;}};
+ $('#id-export-recovery').onclick=async()=>{try{const result=await identity.recoveryExport();modal('A spare key to your universe',`<p>Download both files and keep them separately. This key unlocks only this new backup. It cannot recover an older backup or live conversations.</p><div class="button-group"><button id="id-recovery-backup" class="primary">Download encrypted ID</button><button id="id-recovery-key">Download recovery key</button></div><p>Anyone with both files can import your saved invitations and creator controls. ORBIT does not retain the recovery key.</p><button id="id-recovery-done">Done</button>`);$('#id-recovery-backup').onclick=()=>download(result.backup,'ORBIT-recovery.orbit-id');$('#id-recovery-key').onclick=()=>download(result.recovery,'ORBIT.orbit-recovery-key');$('#id-recovery-done').onclick=closeModal;$('#modal').addEventListener('close',()=>{result.backup='';result.recovery='';if($('#id-recovery-key'))$('#modal-body').replaceChildren();},{once:true});}catch(e){$('#id-status').textContent=e.message;}};
  wireIdentityImport();
  $('#id-delete').onclick=()=>{modal('Delete local ID?',`<p>This leaves all live lounges and removes this device’s ID, invitations, designs and ORBIT preferences. Exported backup files are separate.</p><button id="id-delete-confirm" class="danger wide">Delete ID and leave all lounges</button>`);$('#id-delete-confirm').onclick=async()=>{for(const l of [...lounges.values()])leaveLounge(l);await identity.forget();for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);location.reload();};};
 }
@@ -459,6 +462,8 @@ function importIdentityDialog(){
  modal('Import your ID card',`<p>Use the passphrase chosen when this backup was exported. It is not your lounge code or RODDY login password. Bring your name, avatar and saved lounges with you.</p><label>Card passphrase<input id="id-passphrase" type="password" autocomplete="current-password" placeholder="The passphrase used when exporting"></label><button id="id-import" class="primary wide">Choose ID card…</button><input id="id-file" type="file" accept=".orbit-id,application/json" hidden><p id="id-status" role="status">Your card is opened on this device.</p>`);wireIdentityImport();
 }
 function wireIdentityImport(){
+ const file=$('#id-file'),button=document.createElement('button'),input=document.createElement('input');button.id='id-key-import';button.type='button';button.textContent='Use a recovery-key file…';input.id='id-key-file';input.type='file';input.accept='.orbit-recovery-key,application/json';input.hidden=true;file.after(button,input);button.onclick=()=>input.click();input.onchange=async()=>{try{$('#id-passphrase').value=await recoveryKey(input.files[0]);$('#id-status').textContent='Recovery key loaded locally. Choose the matching encrypted ID backup.';}catch(e){$('#id-status').textContent=e.message;}input.value='';};
+
  $('#id-import').onclick=()=>$('#id-file').click();$('#id-file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const next=await identity.read(file,$('#id-passphrase').value);modal('Import ID preview',`<p>${esc(next.name)} · ${next.lounges.length} lounges · ${next.templates.length} designs</p><p>${next.lounges.filter(l=>l.creatorSecret).length} creator controls included. Importing this ID carries that lounge authority.</p><p>Nothing has been changed. Imported lounges will stay disconnected until you join or enable reconnect.</p><button id="id-merge" class="primary wide">Merge invitations and use this profile</button><button id="id-replace" class="wide danger">Replace local ID and leave live lounges</button><p id="id-import-status" role="status"></p>`);const apply=async merge=>{try{await identity.import(next,merge);storageError='';$('#identity-warning').hidden=true;if(!merge)for(const l of [...lounges.values()])leaveLounge(l);$('#entry-name').value=identity.value.name;for(const key of Object.keys(localStorage))if(key.startsWith('orbit.'))localStorage.removeItem(key);for(const [k,v]of Object.entries(identity.value.settings))try{localStorage.setItem(k,v);}catch{}customBackground=stored('orbit.background.image')||'';skin(stored('orbit.skin')||'orbit');background(stored('orbit.background')||'default');soundEnabled=stored('orbit.sound')==='1';clock24=stored('orbit.clock24')==='1';document.documentElement.style.setProperty('--idle-opacity',(stored('orbit.opacity')||25)/100);for(const l of lounges.values())within(l,()=>{session.profile={...session.profile,name:identity.value.name,avatar:identity.value.avatar,about:identity.value.about};emit('profile',session.profile);});renderHub();returnToWelcome=false;closeModal();toast('ID imported and remembered on this device.');}catch(error){$('#id-import-status').textContent=error.message;}};$('#id-merge').onclick=()=>apply(true);$('#id-replace').onclick=()=>apply(false);}catch(error){$('#id-status').textContent=error.message;}};
 }
 $('#lounge-design').onclick=designer;

@@ -11,7 +11,7 @@
   <div id="splitter" role="separator" aria-label="Resize room list" aria-orientation="horizontal" tabindex="0"><i></i></div>
   <div id="member-section"><div class="section-heading">Members <span id="member-count">0</span></div><div id="members"></div></div>
   <div id="service-links"></div>
-  <button id="lounge-design" class="subtle wide">✦ Design lounge</button><button id="lounge-options" class="subtle wide">Lounge options ⋯</button><div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button><button id="leave" class="danger" title="Leave and remove this lounge from your local ID" disabled>Leave ↗</button></div>
+  <button id="lounge-design" class="subtle wide">✦ Design lounge</button><button id="lounge-options" class="subtle wide">Lounge options ⋯</button><div class="sidebar-footer"><button id="settings"><span>⚙</span> Settings</button></div>
  </aside>
  <main>
   <header id="top-nav">
@@ -27,14 +27,14 @@
   <div id="workspace">
    <div id="panel-controls" role="group" aria-label="Show or hide panels">
     <button id="panel-left" aria-label="Hide rooms and members" title="Hide rooms and members" aria-controls="sidebar" aria-expanded="true"><span class="panel-symbol panel-symbol-left" aria-hidden="true"></span></button>
-    <button id="panel-top" aria-label="Hide top navigation" title="Hide top navigation" aria-controls="top-nav" aria-expanded="true"><span class="panel-symbol panel-symbol-top" aria-hidden="true"></span></button>
+    <button id="panel-top" aria-label="Hide top navigation" title="Hide top navigation" aria-controls="top-nav" aria-expanded="true"><span class="panel-symbol panel-symbol-top" aria-hidden="true"></span><span id="panel-top-label">Hide top bar</span></button>
     <button id="panel-right" aria-label="Hide Up next" title="Hide Up next" aria-controls="queue" aria-expanded="true"><span class="panel-symbol panel-symbol-right" aria-hidden="true"></span></button>
    </div>
    <section id="stage" aria-label="Shared activity">
     <div id="ambient"><div class="ambient-copy"><span class="eyebrow">A MOMENT, TOGETHER</span><h2>Make yourself<br>at home.</h2><p>Watch something. Make something.<br>Or just stay a while.</p><button id="start-watch">Find something to watch ↗</button></div><div class="scene-credit">AURORA COAST <span>ORBIT ORIGINAL</span></div></div>
 
     <div id="activity-content"></div>
-    <div id="chat-overlay" class="auto"><div id="chat-context"></div><div id="messages" role="log" aria-live="polite"></div><form id="composer"><button type="button" id="emoji" aria-label="Choose emoji">☺</button><textarea id="message" rows="1" placeholder="Message Lounge…" aria-label="Message" maxlength="4000"></textarea><button type="button" id="attachment" aria-label="Share image or GIF">＋</button><button type="submit" aria-label="Send message">➤</button></form></div>
+    <div id="chat-overlay" class="auto"><div id="chat-context"></div><div id="messages" role="log" aria-live="polite"></div><form id="composer"><button type="button" id="emoji" aria-label="Choose emoji">☺</button><textarea id="message" rows="1" placeholder="Message Lounge…" aria-label="Message" maxlength="4000"></textarea><button type="button" id="attachment" aria-label="Share a file">＋</button><button type="submit" aria-label="Send message">➤</button></form></div>
     <div id="stage-status"><i></i><span>Ready when you are</span></div>
    </section>
    <aside id="queue"><div class="queue-heading"><div><h2>Up next</h2><p>Good plans are made together.</p></div><button id="queue-close" class="icon" aria-label="Hide activity queue">×</button></div><div id="queue-items"></div><button id="queue-add" class="outlined wide">＋ Add to next slot</button><button id="queue-schedule" class="subtle wide">◷ Schedule an event</button><div class="queue-note"><span>✧</span><p>Anyone here can add something.<br>Everything stays in this space.</p></div></aside>
@@ -43,7 +43,7 @@
 </div>
 <dialog id="welcome" aria-labelledby="welcome-title"><button id="welcome-close" class="icon" aria-label="Close welcome">×</button><form id="entry-form"><div class="entry-brand"><img src="assets/orbit.svg" alt="ORBIT"></div><span class="eyebrow">TOGETHER, FOR NOW</span><h2 id="welcome-title">Your people.<br>Your little universe.</h2><p>Create a lounge. Share its code.<br>Close the app and come back anytime.<br>Leave removes the lounge from your ID. History is never saved.</p><p id="identity-warning" class="notice danger" role="alert" hidden></p><label>Your name<input id="entry-name" disabled maxlength="24" value="RODDY" autocomplete="nickname" required></label><label id="invite-label">Have an invite?<input id="join-code" disabled placeholder="Paste a code or invitation link" autocomplete="off"></label><details id="entry-design" hidden><summary>Use a saved lounge design</summary><label>Design<select id="home-template"><option value="">Fresh lounge</option></select></label></details><button type="submit" id="create-space" disabled class="primary wide">Create a space ↗</button><button type="button" id="join-space" disabled class="outlined wide">Join with code</button><button type="button" id="welcome-import" class="subtle wide">Already have an ID card? Import it ↗</button><div class="entry-skins"><button type="button" data-skin="orbit">ORBIT</button><button type="button" data-skin="buddy">BUDDY</button><button type="button" data-skin="roddy">RODDY</button></div><small id="entry-status">No account. No stored chat history.</small></form></dialog>
 <dialog id="lounge-library" aria-labelledby="library-title"><div class="modal-header"><h2 id="library-title">Saved lounges &amp; designs</h2><button id="library-close" class="icon" aria-label="Close saved lounges">×</button></div><h3>Your lounges</h3><div id="saved-lounges"></div><h3>Saved designs</h3><div id="template-list"></div></dialog>
-<dialog id="modal"><div class="modal-header"><h2 id="modal-title"></h2><button id="modal-close" class="icon" aria-label="Close dialog">×</button></div><div id="modal-body"></div></dialog>
+<dialog id="modal" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title"></h2><button id="modal-close" class="icon" aria-label="Close dialog">×</button></div><div id="modal-body"></div></dialog>
 <div id="toast" role="status"></div>
 <input type="file" id="image-file" hidden>
 <script src="assets/sodium.js"></script><script src="assets/buddy-e2e.js"></script><script type="module" src="app.js"></script>

@@ -44,6 +44,7 @@ export class Identity extends EventTarget{
   const data=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,encode.encode(JSON.stringify(validate(this.value))));
   return JSON.stringify({format:'orbit-id-encrypted',version:1,kdf:'PBKDF2-SHA256',iterations:310000,salt:b64(salt),iv:b64(iv),data:b64(data)});
  }
+ async recoveryExport(){const key=b64(crypto.getRandomValues(new Uint8Array(32))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');return {backup:await this.export(key),recovery:JSON.stringify({format:'orbit-id-recovery-key',version:1,key})};}
  async read(file,passphrase){
   if(file.size>4000000)throw Error('This ID card is too large.');
   let v;try{v=JSON.parse(await file.text());}catch{throw Error('This file is not an ORBIT ID card.');}
@@ -62,3 +63,5 @@ export async function readImage(file,max=1600){
  if(!file)return '';if(file.size>8000000||!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a PNG, JPG or WebP under 8 MB.');
  const bitmap=await createImageBitmap(file),scale=Math.min(1,max/bitmap.width,max/bitmap.height),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();const result=canvas.toDataURL('image/jpeg',.65);if(result.length>220000)throw Error('Choose a smaller or simpler image.');return result;
 }
+
+export async function recoveryKey(file){if(!file||file.size>1024)throw Error('Choose a small ORBIT recovery-key file.');let v;try{v=JSON.parse(await file.text());}catch{throw Error('That is not an ORBIT recovery key.');}if(v.format!=='orbit-id-recovery-key'||v.version!==1||!/^[-\w]{43}$/.test(v.key||''))throw Error('That is not an ORBIT recovery key.');return v.key;}

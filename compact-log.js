@@ -8,4 +8,4 @@ export function compactLog(events){
  return ordered.filter(e=>{const k=key(e);if(k&&latest.get(k)!==e.id)return false;const clear=clears.get(e.room);if(clear&&(e.type==='stroke'||e.type==='board-clear')&&compareEvent(e,clear)<0)return false;return true;});
 }
 
-export function validWatch(d){if(typeof d?.url!=='string')return false;if(!d.url||d.url.startsWith('local:'))return true;try{return ['http:','https:'].includes(new URL(d.url).protocol);}catch{return false;}}
+export function validWatch(d){if(typeof d?.url!=='string')return false;if(!d.url||d.url.startsWith('local:'))return true;try{const u=new URL(d.url);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}}
