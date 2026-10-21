@@ -290,7 +290,6 @@ function syncPanelButtons(){
  for(const [id,show,label]of [['left',left,'rooms and members'],['top',!$('#top-nav').hidden,'top navigation'],['right',!!selected&&!$('#queue').classList.contains('closed'),'Up next']]){
   const button=$('#panel-'+id),text=`${show?'Hide':'Show'} ${label}`;button.setAttribute('aria-expanded',String(show));button.setAttribute('aria-label',text);button.title=text;
  }
- $('#panel-top-label').textContent=$('#top-nav').hidden?'Show top bar':'Hide top bar';
  $('#panel-right').disabled=!selected;$('#mobile-menu').setAttribute('aria-expanded',String(left));
 }
 function closeMobileSidebar(){document.body.classList.remove('menu-open');syncPanelButtons();}
