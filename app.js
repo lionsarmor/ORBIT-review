@@ -154,7 +154,7 @@ function rebuild(){
    case 'link-preview':{const link=s.links[d.id];if(link?.actor===e.actor&&link.room===r&&link.url===d.url){link.thumbnail=previewImage(d.thumbnail);if(!link.title&&typeof d.title==='string')link.title=d.title.slice(0,100);}break;}
    case 'watch':if(validWatch(d))s.watch[r]={...d,actor:e.actor,event:e.id};break;
    case 'web':if(s.rooms[r]&&(d.url===''||webURL(d.url))){const old=s.web[r];if(d.browser&&old?.event!==d.browser)break;if(d.url&&old?.kind==='shared'&&old.url)break;s.web[r]={url:d.url?webURL(d.url):'',kind:d.kind==='shared'?'shared':'local',actor:e.actor,event:e.id};}break;
-   case 'web-location':if(s.web[r]?.event===d.browser&&s.web[r].actor===e.actor&&s.web[r].url&&webURL(d.url))s.web[r].url=webURL(d.url);break;
+   case 'web-location':if(s.web[r]?.event===d.browser&&s.web[r].actor===e.actor&&s.web[r].url&&webURL(d.url)){s.web[r].url=webURL(d.url);s.web[r].httpStatus=Number.isInteger(d.httpStatus)&&d.httpStatus>=100&&d.httpStatus<=599?d.httpStatus:0;}break;
    case 'web-end':if(s.web[r]?.event===d.browser&&(s.web[r].actor===e.actor||s.owner===e.actor&&!session.members.has(s.web[r].actor)))s.web[r].url='';break;
    case 'profile':s.profiles[e.actor]=d;break;
   }

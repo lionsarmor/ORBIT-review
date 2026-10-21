@@ -26,7 +26,7 @@ export class PeerBrowser{
     if(m.type==='ready'){this.send({type:'start',url});this.heartbeat=setInterval(()=>this.send({type:'ping'}),10000);}
     if(m.type==='started'){started=true;clearTimeout(timeout);resolve();}
     if(m.type==='frame')this.draw(m.data);
-    if(m.type==='location')this.onlocation?.(m.url);
+    if(m.type==='location'){const status=Number.isInteger(m.httpStatus)&&m.httpStatus>=100&&m.httpStatus<=599?m.httpStatus:0;this.lastLocation={url:m.url,httpStatus:status};this.onlocation?.(m.url,status);}
     if(m.type==='notice')this.notice?.(m.message);
     if(m.type==='ended'){this.close();this.onended?.();}
    };
