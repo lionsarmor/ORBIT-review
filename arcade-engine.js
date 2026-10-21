@@ -12,14 +12,16 @@ window.orbitEngine={
    for(const name of ['emulator','nipplejs','shaders','storage','gamepad','GameManager','socket.io.min','compression']){
     await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=`vendor/emulatorjs/src/${name}.js`;s.onload=resolve;s.onerror=()=>reject(Error('The cartridge player could not load. Please try again.'));document.head.append(s);});
    }
-   EJS_GameManager.prototype.mountFileSystems=async function(){this.mkdir('/data');this.mkdir('/data/saves');};
+   // A real RAM mount lets the core unmount cleanly on window close. IDBFS
+   // would persist cartridges/saves; an ordinary directory throws on unmount.
+   EJS_GameManager.prototype.mountFileSystems=async function(){this.mkdir('/data');this.mkdir('/data/saves');this.FS.mount(this.FS.filesystems.MEMFS,{},'/data/saves');};
    const url=URL.createObjectURL(rom);this.url=url;
    const e=this.emulator=new EmulatorJS('#game',{
     gameUrl:url,gameName:name,system:core,dataPath:'vendor/emulatorjs/',
     disableDatabases:true,disableLocalStorage:true,noAutoFocus:true,startOnLoad:false,
     disableCue:true,threads:false,language:'en-US',volume:.65,
     defaultControllers:{0:{},1:{},2:{},3:{}},
-    defaultOptions:{'virtual-gamepad':'disabled','save-savefiles-interval':'0',webgl2Enabled:'enabled'},
+    defaultOptions:{'virtual-gamepad':'disabled','save-save-interval':'0',webgl2Enabled:'enabled'},
     buttonOpts:{playPause:false,restart:false,saveState:false,loadState:false,gamepad:false,settings:false,fullscreen:false,exitEmulation:false,saveSavFiles:false,loadSavFiles:false,screenRecord:false}
    });
    e.on('ready',()=>{e.storage.states=new EJS_DUMMYSTORAGE();e.startButtonClicked(e.elements.parent.querySelector('.ejs_start_button'));});
